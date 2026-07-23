@@ -5,7 +5,7 @@
   HyPlayer
   <br>
 </h1>
-<h4 align="center">第三方网易云音乐播放器</h4>
+<h4 align="center">下一代第三方网易云音乐播放器</h4>
 <h4 align="center">A Third-party Netease Cloud Music Player</h4>
 <p align="center">
 	<img alt="Using GPL-v3" src="https://img.shields.io/github/license/kengwang/HyPlayer">
@@ -14,18 +14,6 @@
     <h4 align="center">本软件仅供学习交流使用  请勿用于其他用途<br /><br />下载后请在 24 小时内删除
 </h4>
 </p>
-
-
-
-## 反馈 & 交流
-
-用户交流 QQ 群: <a href="https://jq.qq.com/?_wv=1027&k=cQ73ZhqY">1145646224</a>
-
-> 建议首选 QQ 群组, 下列方式仅为紧急情况使用
-
-Telegram 群组: https://t.me/joinchat/6tJqI3m-b402NDRl
-
-Telegram 频道: https://t.me/hyplayer
 
 ## 声明
 
@@ -65,7 +53,7 @@ Telegram 频道: https://t.me/hyplayer
 
 ### 软件性质
 
-因为作者忙于学业,通常只会在周末处理相关事情
+因为源作者忙于学业,通常只会在周末处理相关事情,很多功能想要却没有实现,所以我会进行一个二改。
 
 请勿将此软件用于 UWP 入门学习, 由于作者没利用好 MVVM 导致项目混乱.
 
