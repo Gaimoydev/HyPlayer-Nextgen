@@ -2,7 +2,7 @@
   <br>
   <img src="https://raw.githubusercontent.com/kengwang/HyPlayer/master/HyPlayer/Assets/icon.png" width="150"/>
   <br>
-  HyPlayer
+  HyPlayer-Nextgen
   <br>
 </h1>
 <h4 align="center">下一代第三方网易云音乐播放器</h4>
