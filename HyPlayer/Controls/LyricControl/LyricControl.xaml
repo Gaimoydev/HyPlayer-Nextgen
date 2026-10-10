@@ -15,5 +15,6 @@
         HorizontalAlignment="Stretch"
         VerticalAlignment="Stretch"
         Draw="CanvasControl_Draw"
+        IsFixedTimeStep="False"
         Update="CanvasControl_Update" />
 </UserControl>

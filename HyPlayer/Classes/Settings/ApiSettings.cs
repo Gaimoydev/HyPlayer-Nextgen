@@ -19,7 +19,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(EnableProxy), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(EnableProxy)] = value;
+                SettingsBase.SetSettings(nameof(EnableProxy), value);
             }
         }
 
@@ -29,7 +29,7 @@ namespace HyPlayer.Classes.Settings
         public AdditionalParameters ApiAdditionalParameters
         {
             get => JsonSerializer.Deserialize<AdditionalParameters>(GetSettings(nameof(ApiAdditionalParameters), "{}"), JsonDefaults.Options) ?? new AdditionalParameters();
-            set => ApplicationData.Current.LocalSettings.Values[nameof(ApiAdditionalParameters)] = JsonSerializer.Serialize(value, JsonDefaults.Options);
+            set => SettingsBase.SetSettings(nameof(ApiAdditionalParameters), JsonSerializer.Serialize(value, JsonDefaults.Options));
         }
 
         /// <summary>
@@ -40,7 +40,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(UseHttp), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(UseHttp)] = value;
+                SettingsBase.SetSettings(nameof(UseHttp), value);
             }
         }
 
@@ -52,7 +52,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(UseHttpWhenGettingSongs), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(UseHttpWhenGettingSongs)] = value;
+                SettingsBase.SetSettings(nameof(UseHttpWhenGettingSongs), value);
             }
         }
 
@@ -64,7 +64,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(EnableCheckTokenApi), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(EnableCheckTokenApi)] = value;
+                SettingsBase.SetSettings(nameof(EnableCheckTokenApi), value);
                 Ioc.Default.GetRequiredService<NeteaseCloudMusicApiHandler>()?.Option.FakeCheckToken = value;
             }
         }
@@ -77,7 +77,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(enableApiCache), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(enableApiCache)] = value;
+                SettingsBase.SetSettings(nameof(enableApiCache), value);
             }
         }
 
@@ -89,7 +89,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(songUrlLazyGet), true);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(songUrlLazyGet)] = value;
+                SettingsBase.SetSettings(nameof(songUrlLazyGet), value);
             }
         }
 
@@ -101,7 +101,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(greedlyLoadPlayContainerItems), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(greedlyLoadPlayContainerItems)] = value;
+                SettingsBase.SetSettings(nameof(greedlyLoadPlayContainerItems), value);
             }
         }
 
@@ -113,7 +113,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(AutoAddGreedilyLoadedSongsToPlayList), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(AutoAddGreedilyLoadedSongsToPlayList)] = value;
+                SettingsBase.SetSettings(nameof(AutoAddGreedilyLoadedSongsToPlayList), value);
             }
         }
 
@@ -125,7 +125,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(jumpVipSongPlaying), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(jumpVipSongPlaying)] = value;
+                SettingsBase.SetSettings(nameof(jumpVipSongPlaying), value);
             }
         }
 
@@ -137,7 +137,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(jumpVipSongDownloading), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(jumpVipSongDownloading)] = value;
+                SettingsBase.SetSettings(nameof(jumpVipSongDownloading), value);
             }
         }
     }

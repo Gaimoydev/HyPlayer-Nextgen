@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace HyPlayer.Classes
 {
@@ -18,5 +19,11 @@ namespace HyPlayer.Classes
         public DateTime CreateTime { get; set; }
         public DateTime UpdateTime { get; set; }
         public bool IsDailyRecommend { get; set; }
+
+        [JsonIgnore]
+        public string CardCover =>
+            Cover is not null && Cover.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !Cover.Contains('?')
+                ? Cover + "?param=" + StaticSource.PICSIZE_HOME_CARD_COVER
+                : Cover;
     }
 }

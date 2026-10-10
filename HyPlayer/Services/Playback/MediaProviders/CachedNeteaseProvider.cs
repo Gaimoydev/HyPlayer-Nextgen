@@ -186,6 +186,19 @@ public sealed class CachedNeteaseProvider : IMediaSourceProvider
         }
     }
 
+    private static readonly ConcurrentDictionary<string, bool> RandomAccessSupportByHost = new(StringComparer.OrdinalIgnoreCase);
+
+    private async Task<bool> SupportsRandomAccessAsync(string playUrl, CancellationToken ct)
+    {
+        var host = new Uri(playUrl).Host;
+        if (RandomAccessSupportByHost.TryGetValue(host, out var cached)) return cached;
+        using var message = new HttpRequestMessage(HttpMethod.Head, playUrl);
+        using var preflightResponse = await _httpClient.SendAsync(message, ct);
+        var supported = preflightResponse.Content.Headers.LastModified is not null;
+        if (preflightResponse.IsSuccessStatusCode) RandomAccessSupportByHost[host] = supported;
+        return supported;
+    }
+
     /// <summary>
     /// 下载歌曲并创建媒体源（边下边播）
     /// </summary>
@@ -201,10 +214,7 @@ public sealed class CachedNeteaseProvider : IMediaSourceProvider
             return MediaSource.CreateFromDownloadOperation(existingOperation);
         }
 
-        using var message = new HttpRequestMessage(HttpMethod.Head, playUrl);
-        using var preflightResponse = await _httpClient.SendAsync(message, ct);
-        var modified = preflightResponse.Content.Headers.LastModified;
-        var headerIsValid = modified is not null;
+        var headerIsValid = await SupportsRandomAccessAsync(playUrl, ct);
 
         var destinationFolder = await StorageFolder.GetFolderFromPathAsync(_setting.cacheDir);
         var fileName = string.Format(CacheFileNameFormat, item.Id, item.SubExt);

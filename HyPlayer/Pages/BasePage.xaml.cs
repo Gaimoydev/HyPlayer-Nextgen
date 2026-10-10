@@ -71,6 +71,7 @@ public sealed partial class BasePage : Page
         _state = Ioc.Default.GetRequiredService<PlaybackStateService>();
         _player = Ioc.Default.GetRequiredService<AudioGraphPlayer>();
         InitializeComponent();
+        BaseFrame.Navigated += (_, _) => MemoryReclaimer.Schedule();
         Ioc.Default.GetRequiredService<IUIStateService>().PageBase = this;
         Ioc.Default.GetRequiredService<IUIStateService>().GlobalTip = TheTeachingTip;
 
@@ -150,6 +151,7 @@ public sealed partial class BasePage : Page
                 DefaultButton = ContentDialogButton.Primary
             };
             dialog.CloseButtonClick += (_, _) => _ = ApplicationView.GetForCurrentView().TryConsolidateAsync();
+            dialog.PrimaryButtonClick += (_, _) => _setting.DisablePopUp = true;
             _ = dialog.ShowAsync();
         }
 

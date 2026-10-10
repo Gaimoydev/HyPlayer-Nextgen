@@ -32,4 +32,8 @@ public class RenderEffects
     /// 预渲染合成
     /// </summary>
     public bool CacheRenderTarget { get; set; } = false;
+
+    public bool Fade { get; set; } = true;
+
+    public int FadingRatio { get; set; } = 5;
 }

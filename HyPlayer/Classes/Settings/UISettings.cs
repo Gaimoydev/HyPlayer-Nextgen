@@ -20,7 +20,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(themeRequest), ThemeRequest.Auto);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(themeRequest)] = (int)value;
+                SettingsBase.SetSettings(nameof(themeRequest), (int)value);
             }
         }
 
@@ -32,7 +32,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(expandAnimation), true);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(expandAnimation)] = value ? "true" : "false";
+                SettingsBase.SetSettings(nameof(expandAnimation), value ? "true" : "false");
             }
         }
 
@@ -42,7 +42,7 @@ namespace HyPlayer.Classes.Settings
         public bool forceMemoryGarbage
         {
             get => GetSettings(nameof(forceMemoryGarbage), false);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(forceMemoryGarbage)] = value;
+            set => SettingsBase.SetSettings(nameof(forceMemoryGarbage), value);
         }
 
         /// <summary>
@@ -51,7 +51,7 @@ namespace HyPlayer.Classes.Settings
         public bool noImage
         {
             get => GetSettings(nameof(noImage), false);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(noImage)] = value;
+            set => SettingsBase.SetSettings(nameof(noImage), value);
         }
 
         /// <summary>
@@ -62,7 +62,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(lyricAlignment), LyricAlignment.Left);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(lyricAlignment)] = (int)value;
+                SettingsBase.SetSettings(nameof(lyricAlignment), (int)value);
             }
         }
 
@@ -74,7 +74,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(lyricSize), 0);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(lyricSize)] = value;
+                SettingsBase.SetSettings(nameof(lyricSize), value);
             }
         }
 
@@ -84,7 +84,7 @@ namespace HyPlayer.Classes.Settings
         public LyricColor lyricColor
         {
             get => GetSettings(nameof(lyricColor), LyricColor.Auto);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(lyricColor)] = (int)value;
+            set => SettingsBase.SetSettings(nameof(lyricColor), (int)value);
         }
 
         /// <summary>
@@ -95,7 +95,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(ColorGeneratorType), ColorGeneratorType.Auto);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(ColorGeneratorType)] = (int)value;
+                SettingsBase.SetSettings(nameof(ColorGeneratorType), (int)value);
             }
         }
 
@@ -107,7 +107,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(IsOldThemeEnabled), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(IsOldThemeEnabled)] = value;
+                SettingsBase.SetSettings(nameof(IsOldThemeEnabled), value);
             }
         }
 
@@ -119,7 +119,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(expandedPlayerBackgroundType), BackgroundType.CoverBlur);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(expandedPlayerBackgroundType)] = (int)value;
+                SettingsBase.SetSettings(nameof(expandedPlayerBackgroundType), (int)value);
             }
         }
 
@@ -131,7 +131,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(CustomAcrylic), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(CustomAcrylic)] = value;
+                SettingsBase.SetSettings(nameof(CustomAcrylic), value);
             }
         }
 
@@ -158,7 +158,7 @@ namespace HyPlayer.Classes.Settings
                     return 3d;
                 }
             }
-            set => ApplicationData.Current.LocalSettings.Values[nameof(CustomTintOpacity)] = value;
+            set => SettingsBase.SetSettings(nameof(CustomTintOpacity), value);
         }
 
         /// <summary>
@@ -184,7 +184,7 @@ namespace HyPlayer.Classes.Settings
                     return 3d;
                 }
             }
-            set => ApplicationData.Current.LocalSettings.Values[nameof(CustomTintLuminosityOpacity)] = value;
+            set => SettingsBase.SetSettings(nameof(CustomTintLuminosityOpacity), value);
         }
 
         /// <summary>
@@ -195,7 +195,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(acrylicBackgroundStatus), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(acrylicBackgroundStatus)] = value;
+                SettingsBase.SetSettings(nameof(acrylicBackgroundStatus), value);
             }
         }
 
@@ -212,7 +212,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(albumRotate), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(albumRotate)] = value;
+                SettingsBase.SetSettings(nameof(albumRotate), value);
                 if (value) albumRound = true;
             }
         }
@@ -225,7 +225,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(albumRound), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(albumRound)] = value;
+                SettingsBase.SetSettings(nameof(albumRound), value);
                 if (!value) albumRotate = false;
             }
         }
@@ -236,7 +236,7 @@ namespace HyPlayer.Classes.Settings
         public int albumBorderLength
         {
             get => GetSettings(nameof(albumBorderLength), 0);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(albumBorderLength)] = value;
+            set => SettingsBase.SetSettings(nameof(albumBorderLength), value);
         }
 
         /// <summary>
@@ -245,7 +245,7 @@ namespace HyPlayer.Classes.Settings
         public bool expandedUseAcrylic
         {
             get => GetSettings(nameof(expandedUseAcrylic), true);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(expandedUseAcrylic)] = value;
+            set => SettingsBase.SetSettings(nameof(expandedUseAcrylic), value);
         }
 
         /// <summary>
@@ -254,7 +254,7 @@ namespace HyPlayer.Classes.Settings
         public bool playbarBackgroundBreath
         {
             get => GetSettings(nameof(playbarBackgroundBreath), false);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(playbarBackgroundBreath)] = value;
+            set => SettingsBase.SetSettings(nameof(playbarBackgroundBreath), value);
         }
 
         /// <summary>
@@ -265,7 +265,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(playbarBackgroundAcrylic), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(playbarBackgroundAcrylic)] = value;
+                SettingsBase.SetSettings(nameof(playbarBackgroundAcrylic), value);
             }
         }
 
@@ -275,7 +275,7 @@ namespace HyPlayer.Classes.Settings
         public bool expandAlbumBreath
         {
             get => GetSettings(nameof(expandAlbumBreath), false);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(expandAlbumBreath)] = value;
+            set => SettingsBase.SetSettings(nameof(expandAlbumBreath), value);
         }
 
         /// <summary>
@@ -284,7 +284,7 @@ namespace HyPlayer.Classes.Settings
         public bool listHeaderAcrylicBlur
         {
             get => GetSettings(nameof(listHeaderAcrylicBlur), true);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(listHeaderAcrylicBlur)] = value;
+            set => SettingsBase.SetSettings(nameof(listHeaderAcrylicBlur), value);
         }
 
         /// <summary>
@@ -293,7 +293,7 @@ namespace HyPlayer.Classes.Settings
         public bool itemOfListBackgroundAcrylicBlur
         {
             get => GetSettings(nameof(itemOfListBackgroundAcrylicBlur), false);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(itemOfListBackgroundAcrylicBlur)] = value;
+            set => SettingsBase.SetSettings(nameof(itemOfListBackgroundAcrylicBlur), value);
         }
 
         /// <summary>
@@ -304,7 +304,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(playbarButtonsTransparent), true);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(playbarButtonsTransparent)] = value;
+                SettingsBase.SetSettings(nameof(playbarButtonsTransparent), value);
             }
         }
 
@@ -316,7 +316,16 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(playbarBackgroundElay), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(playbarBackgroundElay)] = value;
+                SettingsBase.SetSettings(nameof(playbarBackgroundElay), value);
+            }
+        }
+
+        public bool playbarProgressiveBlur
+        {
+            get => GetSettings(nameof(playbarProgressiveBlur), true);
+            set
+            {
+                SettingsBase.SetSettings(nameof(playbarProgressiveBlur), value);
             }
         }
 
@@ -328,7 +337,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(playButtonAccentColor), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(playButtonAccentColor)] = value;
+                SettingsBase.SetSettings(nameof(playButtonAccentColor), value);
             }
         }
 
@@ -340,7 +349,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(expandedPlayerFullCover), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(expandedPlayerFullCover)] = value;
+                SettingsBase.SetSettings(nameof(expandedPlayerFullCover), value);
             }
         }
 
@@ -352,7 +361,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(expandedCoverShadowDepth), 4);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(expandedCoverShadowDepth)] = value;
+                SettingsBase.SetSettings(nameof(expandedCoverShadowDepth), value);
             }
         }
 
@@ -364,7 +373,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings("enableTitleBarImmerse", true);
             set
             {
-                ApplicationData.Current.LocalSettings.Values["enableTitleBarImmerse"] = value;
+                SettingsBase.SetSettings("enableTitleBarImmerse", value);
             }
         }
 
@@ -376,7 +385,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(CompactPlayerPageBlurStatus), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(CompactPlayerPageBlurStatus)] = value;
+                SettingsBase.SetSettings(nameof(CompactPlayerPageBlurStatus), value);
             }
         }
 
@@ -388,7 +397,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(notClearMode), true);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(notClearMode)] = value;
+                SettingsBase.SetSettings(nameof(notClearMode), value);
             }
         }
 
@@ -400,7 +409,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(AutoHidePlaybar), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(AutoHidePlaybar)] = value;
+                SettingsBase.SetSettings(nameof(AutoHidePlaybar), value);
             }
         }
 
@@ -412,7 +421,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(AutoHidePlaybarTime), 3);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(AutoHidePlaybarTime)] = value;
+                SettingsBase.SetSettings(nameof(AutoHidePlaybarTime), value);
                 Ioc.Default.GetRequiredService<IUIStateService>().PlaybarSecondCounter = 0;
             }
         }
@@ -425,7 +434,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(playBarMargin), true);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(playBarMargin)] = value;
+                SettingsBase.SetSettings(nameof(playBarMargin), value);
             }
         }
 
@@ -437,7 +446,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(uiSound), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(uiSound)] = value;
+                SettingsBase.SetSettings(nameof(uiSound), value);
             }
         }
 
@@ -449,7 +458,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(displayShuffledList), true);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(displayShuffledList)] = value;
+                SettingsBase.SetSettings(nameof(displayShuffledList), value);
             }
         }
 
@@ -461,7 +470,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(displayMaintain), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(displayMaintain)] = value;
+                SettingsBase.SetSettings(nameof(displayMaintain), value);
             }
         }
 
@@ -471,7 +480,7 @@ namespace HyPlayer.Classes.Settings
         public bool xboxHidePointer
         {
             get => GetSettings(nameof(xboxHidePointer), false);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(xboxHidePointer)] = value;
+            set => SettingsBase.SetSettings(nameof(xboxHidePointer), value);
         }
 
         /// <summary>
@@ -480,7 +489,7 @@ namespace HyPlayer.Classes.Settings
         public bool enableTouchGestureAction
         {
             get => GetSettings(nameof(enableTouchGestureAction), false);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(enableTouchGestureAction)] = value;
+            set => SettingsBase.SetSettings(nameof(enableTouchGestureAction), value);
         }
 
         /// <summary>
@@ -489,7 +498,7 @@ namespace HyPlayer.Classes.Settings
         public GestureMode gestureMode
         {
             get => GetSettings(nameof(gestureMode), GestureMode.Basic);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(gestureMode)] = (int)value;
+            set => SettingsBase.SetSettings(nameof(gestureMode), (int)value);
         }
 
         /// <summary>
@@ -500,7 +509,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(animationAdaptBPM), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(animationAdaptBPM)] = value;
+                SettingsBase.SetSettings(nameof(animationAdaptBPM), value);
             }
         }
 
@@ -512,7 +521,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(gentleBPMAnimation), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(gentleBPMAnimation)] = value;
+                SettingsBase.SetSettings(nameof(gentleBPMAnimation), value);
             }
         }
 
@@ -522,7 +531,7 @@ namespace HyPlayer.Classes.Settings
         public bool DisablePopUp
         {
             get => GetSettings(nameof(DisablePopUp), false);
-            set => ApplicationData.Current.LocalSettings.Values[nameof(DisablePopUp)] = value;
+            set => SettingsBase.SetSettings(nameof(DisablePopUp), value);
         }
 
         /// <summary>
@@ -533,7 +542,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(enableTile), System.Environment.OSVersion.Version.Build < 22000);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(enableTile)] = value;
+                SettingsBase.SetSettings(nameof(enableTile), value);
                 if (!value)
                 {
                     tileBackgroundAvailability = false;
@@ -550,7 +559,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(tileBackgroundAvailability), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(tileBackgroundAvailability)] = value;
+                SettingsBase.SetSettings(nameof(tileBackgroundAvailability), value);
             }
         }
 
@@ -562,7 +571,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(saveTileBackgroundToLocalFolder), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(saveTileBackgroundToLocalFolder)] = value;
+                SettingsBase.SetSettings(nameof(saveTileBackgroundToLocalFolder), value);
             }
         }
 
@@ -574,7 +583,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(canaryChannelAvailability), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(canaryChannelAvailability)] = value;
+                SettingsBase.SetSettings(nameof(canaryChannelAvailability), value);
             }
         }
 
@@ -586,7 +595,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(localProgressiveLoad), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(localProgressiveLoad)] = value;
+                SettingsBase.SetSettings(nameof(localProgressiveLoad), value);
             }
         }
 
@@ -598,7 +607,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(UpdateSource), UpdateSource.Release);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(UpdateSource)] = (int)value;
+                SettingsBase.SetSettings(nameof(UpdateSource), (int)value);
             }
         }
     }

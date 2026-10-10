@@ -37,6 +37,7 @@ namespace HyPlayer;
 public sealed partial class MainPage : Page
 {
     bool IsPlaybarOnShow = true;
+    private int _navCardVersion;
     public bool IsExpandedPlayerInitialized = false;
     private readonly Setting _setting = Ioc.Default.GetRequiredService<Setting>();
     public MainPage()
@@ -56,8 +57,10 @@ public sealed partial class MainPage : Page
 
         NavigationCacheMode = NavigationCacheMode.Required;
         InitializeComponent();
+        ExpandedPlayer.Navigated += (_, _) => MemoryReclaimer.Schedule();
         UIElement PlayBarMarginRect = PlayBarMarginBackground?.As<UIElement>();
-        SetPlayBarMarginBlurEffect(PlayBarMarginRect);
+        if (_setting.playbarProgressiveBlur)
+            SetPlayBarMarginBlurEffect(PlayBarMarginRect);
         ActualThemeChanged += MainPage_ActualThemeChanged;
         Ioc.Default.GetRequiredService<IUIStateService>().BrushManagement.IsBright = ActualTheme == ElementTheme.Light;
         if (_setting.displayMaintain)
@@ -136,6 +139,12 @@ public sealed partial class MainPage : Page
             Storyboard.SetTarget(BlankAni, (Ioc.Default.GetRequiredService<IUIStateService>().PageBase as BasePage).NavItemBlank);
             Storyboard.SetTargetProperty(BlankAni, "Opacity");
             storyboard.Children.Add(BlankAni);
+            var version = ++_navCardVersion;
+            storyboard.Completed += (_, _) =>
+            {
+                if (version != _navCardVersion) return;
+                (Ioc.Default.GetRequiredService<IUIStateService>().PageBase as BasePage).NavItemSongNameScroll.IsPlaying = false;
+            };
             storyboard.Begin();
         }
 
@@ -174,6 +183,8 @@ public sealed partial class MainPage : Page
         PointerOutAni.Children.Add(PlayBarBlurTransAni);
         PointerOutAni.Begin();
         (Ioc.Default.GetRequiredService<IUIStateService>().PageBase as BasePage).NavItemBlank.IsEnabled = true;
+        _navCardVersion++;
+        (Ioc.Default.GetRequiredService<IUIStateService>().PageBase as BasePage).NavItemSongNameScroll.IsPlaying = true;
         var BlankAni = new DoubleAnimation
         {
             To = 1,

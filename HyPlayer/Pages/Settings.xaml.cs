@@ -1,7 +1,9 @@
 #region
 
 using CommunityToolkit.Mvvm.DependencyInjection;
+using CommunityToolkit.WinUI;
 using HyPlayer.Classes;
+using HyPlayer.Controls.Primitives;
 using HyPlayer.NeteaseApi;
 using HyPlayer.Services.Abstractions;
 using Kawazu;
@@ -31,7 +33,10 @@ using Windows.UI.Xaml.Controls.Primitives;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Navigation;
 using WinRT;
+using ItemsRepeater = Microsoft.UI.Xaml.Controls.ItemsRepeater;
 using Point = Windows.Foundation.Point;
+using SettingsExpander = CommunityToolkit.WinUI.Controls.SettingsExpander;
+using StackLayout = Microsoft.UI.Xaml.Controls.StackLayout;
 
 #endregion
 
@@ -103,7 +108,37 @@ public sealed partial class Settings : Page
 #endif
         //ToggleButtonDaylight.IsChecked = Application.Current.RequestedTheme == ApplicationTheme.Dark;
         BtnXboxReserve.Visibility = true ? Visibility.Visible : Visibility.Collapsed;
-        FontBox.ItemsSource = GetAllFonts();
+        FontBox.ItemsSource = SystemFonts.Value;
+    }
+
+    public static readonly Lazy<List<FontInfo>> SystemFonts = new(GetAllFonts, System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+
+    private void Pivot_OnPivotItemLoaded(Pivot sender, PivotItemEventArgs args)
+    {
+        var item = args.Item;
+        _ = Dispatcher.RunIdleAsync(_ =>
+        {
+            foreach (var expander in item.FindDescendants().OfType<SettingsExpander>())
+            {
+                expander.Expanded -= SettingsExpander_OnExpanded;
+                expander.Expanded += SettingsExpander_OnExpanded;
+                UseNonVirtualizingLayout(expander);
+            }
+        });
+    }
+
+    private void SettingsExpander_OnExpanded(object sender, EventArgs e)
+    {
+        UseNonVirtualizingLayout((DependencyObject)sender);
+    }
+
+    private static void UseNonVirtualizingLayout(DependencyObject root)
+    {
+        foreach (var repeater in root.FindDescendants().OfType<ItemsRepeater>())
+        {
+            if (repeater.Layout is StackLayout stackLayout)
+                repeater.Layout = new NonVirtualizingStackLayout { Spacing = stackLayout.Spacing };
+        }
     }
 
     private static List<FontInfo> GetAllFonts()

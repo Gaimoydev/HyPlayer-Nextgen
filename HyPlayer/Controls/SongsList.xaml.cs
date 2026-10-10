@@ -86,7 +86,9 @@ public sealed partial class SongsList : UserControl
     public static readonly DependencyProperty FooterProperty = DependencyProperty.Register(
         "Footer", typeof(UIElement), typeof(SongsList), new PropertyMetadata(default(UIElement)));
 
-    private readonly ObservableCollection<NCSong> VisibleSongs = new();
+    private readonly BulkObservableCollection<NCSong> VisibleSongs = new();
+    private readonly List<NCSong> _pendingSongs = [];
+    private bool _pendingSongsFlushScheduled;
 
     public static readonly DependencyProperty CanViewCommentsProperty = DependencyProperty.Register(
         "CanViewComments", typeof(bool), typeof(SongsList), new PropertyMetadata(false));
@@ -216,6 +218,19 @@ public sealed partial class SongsList : UserControl
     {
         if (e.NewItems != null)
         {
+            if (VisibleSongs.Count == 0 || _pendingSongsFlushScheduled)
+            {
+                foreach (var item in e.NewItems)
+                    if (item is NCSong ncSong)
+                        _pendingSongs.Add(ncSong);
+                if (!_pendingSongsFlushScheduled && _pendingSongs.Count > 0)
+                {
+                    _pendingSongsFlushScheduled = true;
+                    _ = Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, FlushPendingSongs);
+                }
+                return;
+            }
+
             foreach (var item in e.NewItems)
                 if (item is NCSong ncSong)
                 {
@@ -225,8 +240,17 @@ public sealed partial class SongsList : UserControl
 
         else
         {
+            _pendingSongs.Clear();
             VisibleSongs.Clear();
         }
+    }
+
+    private void FlushPendingSongs()
+    {
+        _pendingSongsFlushScheduled = false;
+        if (_pendingSongs.Count == 0) return;
+        VisibleSongs.AddRange(_pendingSongs);
+        _pendingSongs.Clear();
     }
 
 

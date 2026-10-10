@@ -265,6 +265,8 @@ public sealed partial class WidgetPage : Page
         LyricBox.Context.LyricPaddingTopRatio = _setting.lyricPaddingTopRatio / 100f;
         LyricBox.Context.Debug = _setting.LyricRendererDebugMode;
         LyricBox.Context.Effects.Blur = _setting.lyricRenderBlur;
+        LyricBox.Context.Effects.Fade = _setting.lyricRenderFade;
+        LyricBox.Context.Effects.FadingRatio = _setting.lyricFadingRatio;
         LyricBox.Context.LineRollingEaseCalculator = _setting.LineRollingCalculator switch
         {
             RollingCalculator.SinRollingCalculator => new SinRollingCalculator(),
@@ -285,18 +287,22 @@ public sealed partial class WidgetPage : Page
         UpdateLyricSize();
     }
 
+    private readonly LyricClock _lyricClock = new();
+
     private void LyricBox_OnBeforeRender(LyricRenderView view)
     {
-        if (_player.PrimaryAudioInputNode == null) return;
+        var node = _player.PrimaryAudioInputNode;
+        if (node == null) return;
         LyricBox.Context.IsPlaying = _player.GlobalPlaybackStatus == PlaybackStatus.Playing;
-        if (_player.PrimaryAudioInputNode.Position.TotalMilliseconds < LyricBox.Context.CurrentLyricTime)
+        var position = _lyricClock.Next(node.Position.TotalMilliseconds, LyricBox.Context.IsPlaying, node.PlaybackSpeedFactor);
+        if (position < LyricBox.Context.CurrentLyricTime)
         {
-            LyricBox.Context.CurrentLyricTime = (long)_player.PrimaryAudioInputNode.Position.TotalMilliseconds;
+            LyricBox.Context.CurrentLyricTime = position;
             LyricBox.ReflowTime(0);
         }
         else
         {
-            LyricBox.Context.CurrentLyricTime = (long)_player.PrimaryAudioInputNode.Position.TotalMilliseconds;
+            LyricBox.Context.CurrentLyricTime = position;
         }
     }
 

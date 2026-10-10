@@ -96,6 +96,7 @@ namespace HyPlayer
         public bool itemOfListBackgroundAcrylicBlur { get => UI.itemOfListBackgroundAcrylicBlur; set { UI.itemOfListBackgroundAcrylicBlur = value; OnPropertyChanged(); } }
         public bool playbarButtonsTransparent { get => UI.playbarButtonsTransparent; set { UI.playbarButtonsTransparent = value; OnPropertyChanged(); } }
         public bool playbarBackgroundElay { get => UI.playbarBackgroundElay; set { UI.playbarBackgroundElay = value; OnPropertyChanged(); } }
+        public bool playbarProgressiveBlur { get => UI.playbarProgressiveBlur; set { UI.playbarProgressiveBlur = value; OnPropertyChanged(); } }
         public bool playButtonAccentColor { get => UI.playButtonAccentColor; set { UI.playButtonAccentColor = value; OnPropertyChanged(); } }
         public bool expandedPlayerFullCover { get => UI.expandedPlayerFullCover; set { UI.expandedPlayerFullCover = value; OnPropertyChanged(); } }
         public int expandedCoverShadowDepth { get => UI.expandedCoverShadowDepth; set { UI.expandedCoverShadowDepth = value; OnPropertyChanged(); } }
@@ -196,7 +197,7 @@ namespace HyPlayer
             get => GetSettings(nameof(writedownloadFileInfo), true);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(writedownloadFileInfo)] = value;
+                SettingsBase.SetSettings(nameof(writedownloadFileInfo), value);
                 OnPropertyChanged();
             }
         }
@@ -206,7 +207,7 @@ namespace HyPlayer
             get => GetSettings(nameof(write163Info), true);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(write163Info)] = value;
+                SettingsBase.SetSettings(nameof(write163Info), value);
                 OnPropertyChanged();
             }
         }
@@ -214,18 +215,23 @@ namespace HyPlayer
         public OccupySolution downloadNameOccupySolution
         {
             get => GetSettings(nameof(downloadNameOccupySolution), OccupySolution.Skip);
-            set { ApplicationData.Current.LocalSettings.Values[nameof(downloadNameOccupySolution)] = (int)value; OnPropertyChanged(); }
+            set { SettingsBase.SetSettings(nameof(downloadNameOccupySolution), (int)value); OnPropertyChanged(); }
         }
+
+        private static string _defaultDownloadDir;
 
         public string downloadDir
         {
             get
             {
+                var stored = GetSettings<string>(nameof(downloadDir), null);
+                if (stored != null) return stored;
+                if (_defaultDownloadDir != null) return _defaultDownloadDir;
                 try
                 {
-                    return GetSettings(nameof(downloadDir), KnownFolders.MusicLibrary
+                    return _defaultDownloadDir = KnownFolders.MusicLibrary
                         .CreateFolderAsync(nameof(HyPlayer), CreationCollisionOption.OpenIfExists).AsTask().Result
-                        .Path);
+                        .Path;
                 }
                 catch
                 {
@@ -234,7 +240,7 @@ namespace HyPlayer
             }
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(downloadDir)] = value;
+                SettingsBase.SetSettings(nameof(downloadDir), value);
                 OnPropertyChanged();
             }
         }
@@ -244,7 +250,7 @@ namespace HyPlayer
             get => GetSettings(nameof(downloadFileName), "{$SINGER} - {$SONGNAME}");
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(downloadFileName)] = value;
+                SettingsBase.SetSettings(nameof(downloadFileName), value);
                 OnPropertyChanged();
             }
         }
@@ -254,7 +260,7 @@ namespace HyPlayer
             get => GetSettings(nameof(downloadAudioRate), "hires");
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(downloadAudioRate)] = value;
+                SettingsBase.SetSettings(nameof(downloadAudioRate), value);
                 OnPropertyChanged();
             }
         }
@@ -274,7 +280,7 @@ namespace HyPlayer
             }
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(searchingDir)] = value;
+                SettingsBase.SetSettings(nameof(searchingDir), value);
                 OnPropertyChanged();
             }
         }
@@ -284,7 +290,7 @@ namespace HyPlayer
             get => GetSettings(nameof(maxDownloadCount), 1);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(maxDownloadCount)] = value;
+                SettingsBase.SetSettings(nameof(maxDownloadCount), value);
                 OnPropertyChanged();
             }
         }
@@ -298,7 +304,7 @@ namespace HyPlayer
             }
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(scanLocalFolder)] = string.Join("\r\n", value);
+                SettingsBase.SetSettings(nameof(scanLocalFolder), string.Join("\r\n", value));
                 OnPropertyChanged();
             }
         }
@@ -308,7 +314,7 @@ namespace HyPlayer
             get => GetSettings(nameof(advancedMusicHistoryStorage), true);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(advancedMusicHistoryStorage)] = value;
+                SettingsBase.SetSettings(nameof(advancedMusicHistoryStorage), value);
                 OnPropertyChanged();
             }
         }
@@ -371,22 +377,6 @@ namespace HyPlayer
             }
         }
 
-        public static T GetSettings<T>(string propertyName, T defaultValue)
-        {
-            try
-            {
-                var success = ApplicationData.Current.LocalSettings.Values.TryGetValue(propertyName, out object value);
-                if (success)
-                {
-                    return (T)value;
-                }
-
-                return defaultValue;
-            }
-            catch
-            {
-                return defaultValue;
-            }
-        }
+        public static T GetSettings<T>(string propertyName, T defaultValue) => SettingsBase.GetSettings(propertyName, defaultValue);
     }
 }

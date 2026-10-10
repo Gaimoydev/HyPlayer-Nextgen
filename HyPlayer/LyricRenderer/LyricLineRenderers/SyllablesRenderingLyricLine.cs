@@ -1,5 +1,4 @@
 ﻿#nullable enable
-using CommunityToolkit.Mvvm.DependencyInjection;
 using HyPlayer.LyricRenderer.Abstraction;
 using HyPlayer.LyricRenderer.Abstraction.Render;
 using HyPlayer.LyricRenderer.Animator;
@@ -103,192 +102,220 @@ namespace HyPlayer.LyricRenderer.LyricLineRenderers
                 _sizeChangedWithoutNextRender = false;
             }
 
-            var totalCommand = new CanvasCommandList(session);
-            var actualTop = _lyricTextRenderActualTop;
-            using (CanvasDrawingSession targetDrawingSession = totalCommand.CreateDrawingSession())
+            var currentTime = context.CurrentLyricTime;
+            var focusAmount = GetFocusAmount(currentTime);
+            var opacity = 0.3f + 0.7f * focusAmount;
+            var gap = GetDisplayGap(context);
+
+            var resources = _frameResources;
+            try
             {
-
-                var cl = new CanvasCommandList(targetDrawingSession);
-                using (var clds = cl.CreateDrawingSession())
+                ICanvasImage content;
+                float contentOffsetX;
+                float scalingCenterX;
+                if (!_isFocusing && focusAmount <= 0.001f)
                 {
-                    var textTop = actualTop;
-
-                    var opacity = _isFocusing ? 1 : 0.3f;
-                    clds.DrawImage(_staticPersistCache, 0, 0, _sizePixelRect, opacity);
-                    if (_isFocusing)
+                    content = GetUnfocusedContent(session);
+                    contentOffsetX = actualOffsetX;
+                    scalingCenterX = _scalingCenterX;
+                }
+                else
+                {
+                    var totalCommand = Track(new CanvasCommandList(session));
+                    var actualTop = _lyricTextRenderActualTop;
+                    using (CanvasDrawingSession targetDrawingSession = totalCommand.CreateDrawingSession())
                     {
-                        if (IsSyllable || context.Effects.SimpleLineScanning)
+
+                        var cl = Track(new CanvasCommandList(targetDrawingSession));
+                        using (var clds = cl.CreateDrawingSession())
                         {
-                            var currentTime = context.CurrentLyricTime;
-                            var currentSyllableIndex = Syllables.FindLastIndex(t =>
-                                t.StartTime <= currentTime);
-                            if (currentSyllableIndex != _lastSyllableIndex)
-                            {
-                                CreateSimpleGeometries(session, currentSyllableIndex, Syllables);
-                                _lastSyllableIndex = currentSyllableIndex;
-                            }
+                            var textTop = actualTop;
 
-                            var beforeMatrix = Matrix3x2.CreateTranslation(0, textTop - _liftAmount);
-                            var afterMatrix = Matrix3x2.CreateTranslation(0, textTop);
-                            // before
-                            var textLayoutCommandList = new CanvasCommandList(clds);
-                            using var textLayoutSession = textLayoutCommandList.CreateDrawingSession();
-                            if (beforeCurrentSyllableGeometry is not null)
+                            clds.DrawImage(_staticPersistCache, 0, 0, _sizePixelRect, opacity);
+                            if (_isFocusing)
                             {
-                                using (textLayoutSession.CreateLayer(1, beforeCurrentSyllableGeometry, beforeMatrix))
+                                if (IsSyllable || context.Effects.SimpleLineScanning)
                                 {
-                                    textLayoutSession.DrawImage(_defaultLyricPersistCache, 0, textTop - _liftAmount, _sizePixelRect, 1);
-                                }
-                            }
-                            if (afterCurrentSyllableGeometry is not null)
-                            {
-                                using (textLayoutSession.CreateLayer(1, afterCurrentSyllableGeometry, afterMatrix))
-                                {
-                                    textLayoutSession.DrawImage(_defaultLyricPersistCache, 0, textTop, _sizePixelRect, 0.3f);
-                                }
-                            }
-
-                            // current
-                            {
-                                var percentage = GetCurrentSyllableHighlightPercentage(currentTime, Syllables,
-                                    currentSyllableIndex);
-                                var currentHighlightGeometry =
-                                    CreateHighlightGeometry(session, percentage,
-                                        (currentSyllableIndex == -1 ? null : _syllableBound.ElementAtOrDefault(currentSyllableIndex)) ?? _expandedBound);
-                                var currentCommandList = new CanvasCommandList(clds);
-                                using var currentDrawingSession = currentCommandList.CreateDrawingSession();
-                                // 叠底
-                                using (currentDrawingSession.CreateLayer(1, currentSyllableGeometry, afterMatrix))
-                                {
-                                    currentDrawingSession.DrawImage(_defaultLyricPersistCache, 0, textTop, _sizePixelRect, 0.3f);
-                                }
-
-                                // 高亮
-                                using (currentDrawingSession.CreateLayer(1, currentHighlightGeometry, afterMatrix))
-                                {
-                                    currentDrawingSession.DrawImage(_defaultLyricPersistCache, 0, textTop);
-                                }
-
-                                if (currentSyllableIndex != -1 && Syllables[currentSyllableIndex].Duration >= 500 && Syllables[currentSyllableIndex].SyllableCount >= 4)
-                                {
-                                    // 绘制 Displacement Map
-                                    var displacementMap = new CanvasCommandList(clds);
-                                    using (var displacementSession = displacementMap.CreateDrawingSession())
+                                    var currentSyllableIndex = Syllables.FindLastIndex(t =>
+                                        t.StartTime <= currentTime);
+                                    if (currentSyllableIndex != _lastSyllableIndex)
                                     {
-                                        displacementSession.Clear(_defaultColor);
-                                        var gradientStops = new CanvasGradientStop[]
-                                        {
-                                            // 抬升开始点
-                                            new() { Position = percentage - 0.5f, Color = Color.FromArgb(255, 128, 255, 0) },
-                                            // 抬升峰值
-                                            new() { Position = percentage, Color = Color.FromArgb(255, 128, 255, 0) },
-                                            // 抬升结束点
-                                            new() { Position = percentage + 0.5f, Color = Color.FromArgb(255, 128, 128, 0) }
-                                        };
-                                        using var gradientBrush = new CanvasLinearGradientBrush(displacementSession, gradientStops);
-                                        // 创建一个从左到右的渐变
-                                        gradientBrush.StartPoint = new Vector2((float)currentSyllableSize.Left, 0);
-                                        gradientBrush.EndPoint = new Vector2((float)currentSyllableSize.Width + (float)currentSyllableSize.Left, 0);
-
-                                        // 将渐变绘制到位移图上
-                                        displacementSession.FillGeometry(currentSyllableGeometry, 0, textTop, gradientBrush);
+                                        CreateSimpleGeometries(session, currentSyllableIndex, Syllables);
+                                        _lastSyllableIndex = currentSyllableIndex;
                                     }
 
-                                    var displacementEffect = new DisplacementMapEffect
+                                    var beforeMatrix = Matrix3x2.CreateTranslation(0, textTop - _liftAmount);
+                                    var afterMatrix = Matrix3x2.CreateTranslation(0, textTop);
+                                    // before
+                                    var textLayoutCommandList = Track(new CanvasCommandList(clds));
+                                    using var textLayoutSession = textLayoutCommandList.CreateDrawingSession();
+                                    if (beforeCurrentSyllableGeometry is not null)
                                     {
-                                        Source = currentCommandList,
-                                        Displacement = displacementMap,
-                                        XChannelSelect = EffectChannelSelect.Red,
-                                        YChannelSelect = EffectChannelSelect.Green,
-                                        Amount = _liftAmount * 2
-                                    };
-                                    // 整体 x 轴偏移回去
-                                    clds.DrawImage(displacementEffect, 0, 0);
+                                        using (textLayoutSession.CreateLayer(1, beforeCurrentSyllableGeometry, beforeMatrix))
+                                        {
+                                            textLayoutSession.DrawImage(_defaultLyricPersistCache, 0, textTop - _liftAmount, _sizePixelRect, 1);
+                                        }
+                                    }
+                                    if (afterCurrentSyllableGeometry is not null)
+                                    {
+                                        using (textLayoutSession.CreateLayer(1, afterCurrentSyllableGeometry, afterMatrix))
+                                        {
+                                            textLayoutSession.DrawImage(_defaultLyricPersistCache, 0, textTop, _sizePixelRect, 0.3f);
+                                        }
+                                    }
+
+                                    // current
+                                    {
+                                        var percentage = GetCurrentSyllableHighlightPercentage(currentTime, Syllables,
+                                            currentSyllableIndex);
+                                        var currentHighlightGeometry = Track(
+                                            CreateHighlightGeometry(session, percentage,
+                                                (currentSyllableIndex == -1 ? null : _syllableBound.ElementAtOrDefault(currentSyllableIndex)) ?? _expandedBound));
+                                        var currentCommandList = Track(new CanvasCommandList(clds));
+                                        using var currentDrawingSession = currentCommandList.CreateDrawingSession();
+                                        // 叠底
+                                        using (currentDrawingSession.CreateLayer(1, currentSyllableGeometry, afterMatrix))
+                                        {
+                                            currentDrawingSession.DrawImage(_defaultLyricPersistCache, 0, textTop, _sizePixelRect, 0.3f);
+                                        }
+
+                                        // 高亮
+                                        using (currentDrawingSession.CreateLayer(1, currentHighlightGeometry, afterMatrix))
+                                        {
+                                            currentDrawingSession.DrawImage(_defaultLyricPersistCache, 0, textTop);
+                                        }
+
+                                        if (currentSyllableIndex != -1 && Syllables[currentSyllableIndex].Duration >= 500 && Syllables[currentSyllableIndex].SyllableCount >= 4)
+                                        {
+                                            // 绘制 Displacement Map
+                                            var displacementMap = Track(new CanvasCommandList(clds));
+                                            using (var displacementSession = displacementMap.CreateDrawingSession())
+                                            {
+                                                displacementSession.Clear(_defaultColor);
+                                                var gradientStops = new CanvasGradientStop[]
+                                                {
+                                                    // 抬升开始点
+                                                    new() { Position = percentage - 0.5f, Color = Color.FromArgb(255, 128, 255, 0) },
+                                                    // 抬升峰值
+                                                    new() { Position = percentage, Color = Color.FromArgb(255, 128, 255, 0) },
+                                                    // 抬升结束点
+                                                    new() { Position = percentage + 0.5f, Color = Color.FromArgb(255, 128, 128, 0) }
+                                                };
+                                                using var gradientBrush = new CanvasLinearGradientBrush(displacementSession, gradientStops);
+                                                // 创建一个从左到右的渐变
+                                                gradientBrush.StartPoint = new Vector2((float)currentSyllableSize.Left, 0);
+                                                gradientBrush.EndPoint = new Vector2((float)currentSyllableSize.Width + (float)currentSyllableSize.Left, 0);
+
+                                                // 将渐变绘制到位移图上
+                                                displacementSession.FillGeometry(currentSyllableGeometry, 0, textTop, gradientBrush);
+                                            }
+
+                                            var displacementEffect = Track(new DisplacementMapEffect
+                                            {
+                                                Source = currentCommandList,
+                                                Displacement = displacementMap,
+                                                XChannelSelect = EffectChannelSelect.Red,
+                                                YChannelSelect = EffectChannelSelect.Green,
+                                                Amount = _liftAmount * 2
+                                            });
+                                            // 整体 x 轴偏移回去
+                                            clds.DrawImage(displacementEffect, 0, 0);
+                                        }
+                                        else
+                                        {
+                                            var normalLift = 0f;
+                                            if (currentSyllableIndex != -1)
+                                                normalLift = -_liftAmount * Math.Clamp(1.0f * percentage, 0, 1);
+                                            clds.DrawImage(currentCommandList, 0, normalLift);
+                                        }
+                                        clds.DrawImage(textLayoutCommandList);
+                                    }
                                 }
                                 else
                                 {
-                                    var normalLift = 0f;
-                                    if (currentSyllableIndex != -1)
-                                        normalLift = -_liftAmount * Math.Clamp(1.0f * percentage, 0, 1);
-                                    clds.DrawImage(currentCommandList, 0, normalLift);
+                                    clds.DrawImage(_defaultLyricPersistCache, 0, textTop, _sizePixelRect, opacity);
                                 }
-                                clds.DrawImage(textLayoutCommandList);
                             }
+                            else
+                            {
+                                clds.DrawImage(_defaultLyricPersistCache, 0, textTop, _sizePixelRect, opacity);
+                            }
+
+
                         }
-                        else
+
+                        if (focusAmount > 0.001f && context.Effects.FocusHighlighting)
                         {
-                            clds.DrawImage(_defaultLyricPersistCache, 0, textTop, _sizePixelRect, opacity);
+                            var highlightEffectBuilder = new CanvasImageBuilder(cl, resources);
+                            //画发光效果
+                            highlightEffectBuilder
+                                .AddShadowEffect(6,
+                                    _cachedShadowColor ?? _cachedFocusingColor)
+                                .AddOpacityEffect(0.4f * focusAmount);
+                            targetDrawingSession.DrawImage(highlightEffectBuilder.Build(), actualOffsetX, 0);
                         }
-                    }
-                    else
-                    {
-                        clds.DrawImage(_defaultLyricPersistCache, 0, textTop, _sizePixelRect, opacity);
+
+                        targetDrawingSession.DrawImage(cl, actualOffsetX, 0);
                     }
 
-
+                    content = totalCommand;
+                    contentOffsetX = 0;
+                    scalingCenterX = actualOffsetX + _scalingCenterX;
                 }
 
-                if (_isFocusing && context.Effects.FocusHighlighting)
-                {
-                    var highlightEffectBuilder = new CanvasImageBuilder(cl);
-                    //画发光效果
-                    highlightEffectBuilder
-                        .AddShadowEffect(6,
-                            _cachedShadowColor ?? _cachedFocusingColor)
-                        .AddOpacityEffect(0.4f);
-                    targetDrawingSession.DrawImage(highlightEffectBuilder.Build(), actualOffsetX, 0);
-                }
+                var image = content;
 
-                targetDrawingSession.DrawImage(cl, actualOffsetX, 0);
-            }
-
-            var gap = _isFocusing ? 0 : Math.Clamp(Math.Abs(Id - context.CurrentLyricLineIndex), 1, 250);
-            var finalEffectBuilder = new CanvasImageBuilder(totalCommand);
-
-            if (context.Effects.ScaleWhenFocusing)
-            {
-                // 计算 Progress
-                var progress = 0f;
-
-                if (context.CurrentLyricTime - EndTime >= 0 &&
-                    context.CurrentLyricTime - EndTime <= ScaleAnimationDuration) //缩小
-                {
-                    progress = 1 - ((float)EaseFunction.Ease(Math.Clamp(
-                        (context.CurrentLyricTime - EndTime) * 1.0f / ScaleAnimationDuration, 0, 1)));
-                }
-                else if (_isFocusing && context.CurrentLyricTime - StartTime >= 0) //放大
-                {
-                    progress = (float)_elasticEase.Ease(Math.Clamp(
-                        (context.CurrentLyricTime - StartTime) * 1.0f / 1000, 0, 1));
-                }
-
-                var scaling = 0.8F + progress * 0.2F;
-
-                finalEffectBuilder
-                    .AddTransform2DEffect(GetCenterMatrix(0, 0, actualOffsetX + _scalingCenterX,
-                        (float)textLayout.LayoutBounds.Height / 2, scaling, scaling))
-                    .AddOpacityEffect(Math.Clamp(0.5f + progress * 0.5f, 0, 1));
-            }
-            else
-            {
                 if (context.Effects.ScaleWhenFocusing)
                 {
-                    finalEffectBuilder.AddTransform2DEffect(_unfocusMatrix);
+                    // 计算 Progress
+                    var progress = 0f;
+
+                    if (context.CurrentLyricTime - EndTime >= 0 &&
+                        context.CurrentLyricTime - EndTime <= ScaleAnimationDuration) //缩小
+                    {
+                        progress = 1 - ((float)EaseFunction.Ease(Math.Clamp(
+                            (context.CurrentLyricTime - EndTime) * 1.0f / ScaleAnimationDuration, 0, 1)));
+                    }
+                    else if (_isFocusing && context.CurrentLyricTime - StartTime >= 0) //放大
+                    {
+                        progress = (float)_elasticEase.Ease(Math.Clamp(
+                            (context.CurrentLyricTime - StartTime) * 1.0f / 1000, 0, 1));
+                    }
+
+                    var scaling = 0.8F + progress * 0.2F;
+
+                    _scaleEffect ??= new Transform2DEffect();
+                    _scaleEffect.Source = image;
+                    _scaleEffect.TransformMatrix = GetCenterMatrix(0, 0, scalingCenterX,
+                        (float)textLayout.LayoutBounds.Height / 2, scaling, scaling);
+                    _scaleOpacityEffect ??= new OpacityEffect();
+                    _scaleOpacityEffect.Source = _scaleEffect;
+                    _scaleOpacityEffect.Opacity = Math.Clamp(0.5f + progress * 0.5f, 0, 1);
+                    image = _scaleOpacityEffect;
                 }
-            }
 
-            if (context.Effects.Blur && !_isFocusing && !context.IsScrolling)
-            {
-                finalEffectBuilder.AddGaussianBlurEffect(Math.Clamp(gap, 0, 250));
-            }
+                if (context.Effects.Blur && gap > 0.01f && !context.IsScrolling)
+                {
+                    _blurEffect ??= new GaussianBlurEffect();
+                    _blurEffect.Source = image;
+                    _blurEffect.BlurAmount = Math.Clamp(gap, 0, 250);
+                    image = _blurEffect;
+                }
 
-            if (Ioc.Default.GetRequiredService<HyPlayer.Setting>()!.lyricRenderFade && !context.IsScrolling)
-            {
-                finalEffectBuilder.AddOpacityEffect(1 -
-                                                    Math.Clamp(gap / (10f - (Ioc.Default.GetRequiredService<HyPlayer.Setting>().lyricFadingRatio / 10f)), 0,
-                                                        0.9f));
+                if (context.Effects.Fade && !context.IsScrolling)
+                {
+                    _fadeEffect ??= new OpacityEffect();
+                    _fadeEffect.Source = image;
+                    _fadeEffect.Opacity = 1 - Math.Clamp(gap / (10f - (context.Effects.FadingRatio / 10f)), 0, 0.9f);
+                    image = _fadeEffect;
+                }
+                session.DrawImage(image, contentOffsetX, drawingTop);
             }
-            session.DrawImage(finalEffectBuilder.Build(), 0, drawingTop);
+            finally
+            {
+                foreach (var resource in resources) resource.Dispose();
+                resources.Clear();
+            }
             _sizeChanged = false;
 
             // 画背景
@@ -315,6 +342,87 @@ namespace HyPlayer.LyricRenderer.LyricLineRenderers
 
             return true;
         }
+
+        private const long FocusTransitionDuration = 300;
+        private const long GapTransitionDuration = 400;
+        private const long GapSnapRenderTicks = 1000000;
+
+        private readonly List<IDisposable> _frameResources = [];
+        private CanvasCommandList? _unfocusedContent;
+        private Transform2DEffect? _scaleEffect;
+        private OpacityEffect? _scaleOpacityEffect;
+        private GaussianBlurEffect? _blurEffect;
+        private OpacityEffect? _fadeEffect;
+
+        private CanvasCommandList GetUnfocusedContent(ICanvasResourceCreator creator)
+        {
+            if (_unfocusedContent is not null) return _unfocusedContent;
+            var commandList = new CanvasCommandList(creator);
+            using (var ds = commandList.CreateDrawingSession())
+            {
+                ds.DrawImage(_staticPersistCache, 0, 0, _sizePixelRect, 0.3f);
+                ds.DrawImage(_defaultLyricPersistCache, 0, _lyricTextRenderActualTop, _sizePixelRect, 0.3f);
+            }
+
+            return _unfocusedContent = commandList;
+        }
+        private bool _hasFocusTransition;
+        private float _focusAmountFrom;
+        private long _focusTransitionStart;
+        private bool _hasGap;
+        private float _gapFrom;
+        private float _gapTo;
+        private long _gapTransitionStart;
+        private long _lastRenderTick;
+
+        private T Track<T>(T resource) where T : IDisposable
+        {
+            _frameResources.Add(resource);
+            return resource;
+        }
+
+        private float GetFocusAmount(long time)
+        {
+            var target = _isFocusing ? 1f : 0f;
+            if (!_hasFocusTransition) return target;
+            var elapsed = time - _focusTransitionStart;
+            if (elapsed < 0 || elapsed >= FocusTransitionDuration) return target;
+            var progress = (float)EaseFunction.Ease(elapsed * 1.0f / FocusTransitionDuration);
+            return _focusAmountFrom + (target - _focusAmountFrom) * progress;
+        }
+
+        private float GetDisplayGap(RenderContext context)
+        {
+            float target = _isFocusing ? 0 : Math.Clamp(Math.Abs(Id - context.CurrentLyricLineIndex), 1, 250);
+            var time = context.CurrentLyricTime;
+            var justAppeared = context.RenderTick - _lastRenderTick > GapSnapRenderTicks;
+            _lastRenderTick = context.RenderTick;
+            if (!_hasGap || justAppeared || time < _gapTransitionStart)
+            {
+                _hasGap = true;
+                _gapFrom = _gapTo = target;
+                _gapTransitionStart = time;
+                return target;
+            }
+
+            if (Math.Abs(target - _gapTo) > 0.0001f)
+            {
+                _gapFrom = EvaluateGap(time);
+                _gapTo = target;
+                _gapTransitionStart = time;
+            }
+
+            return EvaluateGap(time);
+        }
+
+        private float EvaluateGap(long time)
+        {
+            var elapsed = time - _gapTransitionStart;
+            if (elapsed >= GapTransitionDuration) return _gapTo;
+            var progress = (float)EaseFunction.Ease(Math.Max(elapsed, 0) * 1.0f / GapTransitionDuration);
+            return _gapFrom + (_gapTo - _gapFrom) * progress;
+        }
+
         public static List<CanvasGradientStop> GetCanvasGradientStop(float percentage, float start, float end, float witdth)
         {
             float duration = end - start;
@@ -456,7 +564,14 @@ namespace HyPlayer.LyricRenderer.LyricLineRenderers
 
         public override void OnKeyFrame(CanvasDrawingSession session, RenderContext context)
         {
-            _isFocusing = (context.CurrentKeyframe >= StartTime) && (context.CurrentKeyframe < EndTime);
+            var focusing = (context.CurrentKeyframe >= StartTime) && (context.CurrentKeyframe < EndTime);
+            if (focusing != _isFocusing)
+            {
+                _focusAmountFrom = GetFocusAmount(context.CurrentLyricTime);
+                _focusTransitionStart = context.CurrentKeyframe;
+                _hasFocusTransition = context.CurrentKeyframe != 0;
+            }
+            _isFocusing = focusing;
             Hidden = HiddenOnBlur && !_isFocusing;
 
             if (_canvasWidth == 0.0f) return;
@@ -717,6 +832,8 @@ namespace HyPlayer.LyricRenderer.LyricLineRenderers
 
 
             // create static persist
+            _unfocusedContent?.Dispose();
+            _unfocusedContent = null;
             _staticPersistCache?.Dispose();
             _defaultLyricPersistCache?.Dispose();
             CanvasDrawingSession pstDs;

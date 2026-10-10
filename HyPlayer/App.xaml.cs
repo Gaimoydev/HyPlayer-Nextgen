@@ -185,6 +185,7 @@ public sealed partial class App : Application
 
     private static async Task InitializeThings()
     {
+        _ = Task.Run(() => Settings.SystemFonts.Value);
         try
         {
             await SimpleCacher.InitializeAsync();
@@ -225,6 +226,7 @@ public sealed partial class App : Application
     private void App_EnteredBackground(object sender, EnteredBackgroundEventArgs e)
     {
         Ioc.Default.GetRequiredService<IUIStateService>().IsInBackground = true;
+        MemoryReclaimer.CollectNow();
     }
 
     protected override void OnActivated(IActivatedEventArgs args)

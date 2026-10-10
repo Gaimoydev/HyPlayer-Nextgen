@@ -115,7 +115,7 @@ namespace HyPlayer.Classes
                 ex.Message.Contains("API 请求失败"))
             .WaitAndRetryAsync(
                 retryCount: 3,
-                sleepDurationProvider: attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)), // 指数退避
+                sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(attempt switch { 1 => 300, 2 => 800, _ => 1500 }),
                 onRetry: (exception, timespan, retryCount, context) =>
                 {
                     System.Diagnostics.Debug.WriteLine(

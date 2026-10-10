@@ -295,9 +295,11 @@
                                         FontSize="12"
                                         TextTrimming="CharacterEllipsis" />
                                     <controls1:AutoScrollView
+                                        x:Name="NavItemSongNameScroll"
                                         Grid.Row="1"
                                         Margin="0,0,15,5"
-                                        IsPlaying="True">
+                                        x:FieldModifier="public"
+                                        IsPlaying="False">
                                         <TextBlock
                                             x:Name="NavItemSongName"
                                             FontSize="20"

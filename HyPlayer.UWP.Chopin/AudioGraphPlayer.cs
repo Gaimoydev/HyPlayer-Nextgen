@@ -452,10 +452,24 @@ namespace HyPlayer.UWP.Chopin.Abstractions.Models
 
             node.RemoveOutgoingConnection(_outputNode);
             node.RemoveOutgoingConnection(_frameOutputNode);
-            node.Dispose();
+            DisposeNodeInBackground(node);
 
             _audioInputNodes.TryRemove(source, out _);
             _audioInputNodesReverseDictionary.TryRemove(node, out _);
+        }
+
+        private static void DisposeNodeInBackground(MediaSourceAudioInputNode node)
+        {
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    node.Dispose();
+                }
+                catch
+                {
+                }
+            });
         }
 
         public void RemoveAllPlaybackSource()
@@ -466,7 +480,7 @@ namespace HyPlayer.UWP.Chopin.Abstractions.Models
                 source.Value.MediaSourceCompleted -= OnMediaSourceCompleted;
                 source.Value.RemoveOutgoingConnection(_outputNode);
                 source.Value.RemoveOutgoingConnection(_frameOutputNode);
-                source.Value.Dispose();
+                DisposeNodeInBackground(source.Value);
             }
             _audioInputNodes.Clear();
             _audioInputNodesReverseDictionary.Clear();

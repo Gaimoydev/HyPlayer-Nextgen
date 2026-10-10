@@ -109,23 +109,6 @@ DoubleAnimation verticalAnimation;
         });
     }
 
-    public void OnPlayPositionChange(TimeSpan ts)
-    {
-        RunOnUIThread(() =>
-        {
-            try
-            {
-                if (ViewModel.NowPlayingItem?.PlayItem == null) return;
-                var _lyricIsOnShowTimespan = ts;
-                // Text/progress values are provided by PlayBarViewModel x:Bind.
-            }
-            catch
-            {
-                //ignore
-            }
-        });
-    }
-
     public void SetPlayBarIdleBackground(SolidColorBrush colorBrush)
     {
         var color = colorBrush.Color;
@@ -605,9 +588,6 @@ DoubleAnimation verticalAnimation;
         messenger.Register<SongLikeStatusChangedMessage>(this, (_, m) => HyPlayList_OnSongLikeStatusChange(m.IsLiked));
         messenger.Register<CoverChangedMessage>(this, (_, m) => RefreshPlayBarCover(m.Item));
         messenger.Register<LoginCompletedMessage>(this, (_, _) => HyPlayListOnOnLoginDone());
-
-        // Position updates now use Messenger too
-        messenger.Register<PositionTickMessage>(this, (_, m) => OnPlayPositionChange(m.Position));
 
         if (_setting.playbarButtonsTransparent)
         {

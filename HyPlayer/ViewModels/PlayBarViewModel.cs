@@ -287,9 +287,16 @@ public partial class PlayBarViewModel : ObservableRecipient
 
     partial void OnNowPlayingItemChanged(HyPlayItem? value) => NotifyPlayBarProperties();
     partial void OnIsPlayingChanged(bool value) => OnPropertyChanged(nameof(PlayStateGlyph));
+    private long _lastNotifiedSecond = -1;
+
     partial void OnPositionChanged(TimeSpan value)
     {
-        OnPropertyChanged(nameof(NowTimeText));
+        var second = (long)value.TotalSeconds;
+        if (second != _lastNotifiedSecond)
+        {
+            _lastNotifiedSecond = second;
+            OnPropertyChanged(nameof(NowTimeText));
+        }
         OnPropertyChanged(nameof(ProgressMilliseconds));
     }
     partial void OnDurationChanged(TimeSpan value)

@@ -5,6 +5,7 @@ using HyPlayer.UWP.Chopin;
 using HyPlayer.UWP.Chopin.Abstractions.Models;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using Microsoft.Graphics.Canvas.Text;
+using System;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 
@@ -15,6 +16,7 @@ namespace HyPlayer.Controls.LyricControl
     public sealed partial class LyricControl : UserControl
     {
         public LyricRenderOption? LyricRenderOption;
+        private readonly LyricRenderer.LyricClock _lyricClock = new();
 
         public LyricControl()
         {
@@ -48,9 +50,12 @@ namespace HyPlayer.Controls.LyricControl
                 ShadowColor = _shadowColor,
 
             };
+            var node = _player.PrimaryAudioInputNode;
+            var position = _lyricClock.Next(node.Position.TotalMilliseconds,
+                _player.GlobalPlaybackStatus == PlaybackStatus.Playing, node.PlaybackSpeedFactor);
             LyricRenderComposer.RenderOnDrawingSession(args.DrawingSession,
                                                        _lyric.CurrentLyricInfo.Lyrics[_lyric.CurrentLyricIndex],
-                                                       _player.PrimaryAudioInputNode.Position, LyricRenderOption.GetValueOrDefault(),
+                                                       TimeSpan.FromMilliseconds(position), LyricRenderOption.GetValueOrDefault(),
                                                        sender.Size, QuickRenderMode);
         }
 

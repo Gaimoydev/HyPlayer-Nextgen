@@ -29,6 +29,8 @@ namespace HyPlayer.LyricRenderer
 
         public event LyricLineClickedDelegate OnLyricLineClicked;
 
+        public event Action OnChanged;
+
         private readonly CustomCircleEase _circleEase = new() { EasingMode = EasingMode.EaseOut };
 
         private bool _pointerPressed;
@@ -40,6 +42,7 @@ namespace HyPlayer.LyricRenderer
             get => Context.EnableTransliteration;
             set
             {
+                OnChanged?.Invoke();
                 Context.EnableTranslation = value;
                 _isTypographyChanged = true;
                 _needRecalculate = true;
@@ -51,6 +54,7 @@ namespace HyPlayer.LyricRenderer
             get => Context.EnableTransliteration;
             set
             {
+                OnChanged?.Invoke();
                 Context.EnableTransliteration = value;
                 _isTypographyChanged = true;
                 _needRecalculate = true;
@@ -67,6 +71,7 @@ namespace HyPlayer.LyricRenderer
 
         public void ChangeRenderColor(Color idleColor, Color focusingColor, Color? shadowColor = null)
         {
+            OnChanged?.Invoke();
             Context.PreferTypography.IdleColor = idleColor;
             Context.PreferTypography.FocusingColor = focusingColor;
             Context.PreferTypography.ShadowColor = shadowColor ?? focusingColor;
@@ -75,6 +80,7 @@ namespace HyPlayer.LyricRenderer
 
         public void ChangeRenderFontSize(float lyricSize, float translationSize, float transliterationSize)
         {
+            OnChanged?.Invoke();
             Context.PreferTypography.LyricFontSize = lyricSize;
             Context.PreferTypography.TranslationFontSize = translationSize;
             Context.PreferTypography.TransliterationFontSize = transliterationSize;
@@ -83,6 +89,7 @@ namespace HyPlayer.LyricRenderer
 
         public void ChangeAlignment(TextAlignment alignment)
         {
+            OnChanged?.Invoke();
             Context.PreferTypography.Alignment = alignment;
             _isTypographyChanged = true;
             _needRecalculateSize = true;
@@ -90,14 +97,15 @@ namespace HyPlayer.LyricRenderer
 
         public void ChangeBeatPerMinute(float beatPerMinute)
         {
+            OnChanged?.Invoke();
             Context.BeatPerMinute = beatPerMinute;
             _isTypographyChanged = true;
         }
 
         public void ReflowTime(long time)
         {
-            var keys = _keyFrameRendered.Keys.ToArray();
-            foreach (var key in keys)
+            OnChanged?.Invoke();
+            foreach (var key in _keyFrameKeys)
             {
                 if (key >= time) _keyFrameRendered[key] = false;
             }
@@ -111,6 +119,7 @@ namespace HyPlayer.LyricRenderer
 
         public void SetLyricLines(List<RenderingLyricLine> lines)
         {
+            OnChanged?.Invoke();
             _initializing = true;
             Context.LyricLines.Clear();
             Context.LyricLines.AddRange(lines);
@@ -160,6 +169,7 @@ namespace HyPlayer.LyricRenderer
                 }
             }
 
+            _keyFrameKeys = [.. _keyFrameRendered.Keys];
             _isTypographyChanged = true;
             _initializing = false;
         }
@@ -178,6 +188,7 @@ namespace HyPlayer.LyricRenderer
         }
 
         private readonly Dictionary<long, bool> _keyFrameRendered = new();
+        private long[] _keyFrameKeys = [];
         private readonly Dictionary<long, List<RenderingLyricLine>> _targetingKeyFrames = new();
 
         private void RecalculateRenderOffset(CanvasDrawingSession session)
@@ -340,7 +351,7 @@ namespace HyPlayer.LyricRenderer
                     }
                 }
 
-                foreach (var key in _keyFrameRendered.Keys.ToArray())
+                foreach (var key in _keyFrameKeys)
                 {
                     if (_keyFrameRendered[key]) continue;
                     if (key >= Context.CurrentLyricTime && key != 0) continue;
@@ -421,6 +432,7 @@ namespace HyPlayer.LyricRenderer
 
         public void Redesign(float width, float height, float dpi)
         {
+            OnChanged?.Invoke();
             Context.ViewWidth = width;
             Context.ViewHeight = height;
             Context.Dpi = dpi;
@@ -433,6 +445,7 @@ namespace HyPlayer.LyricRenderer
 
         public void LyricView_OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
         {
+            OnChanged?.Invoke();
             var delta = e.GetCurrentPoint((UIElement)sender).Properties.MouseWheelDelta;
             var min = -(long)Context.LyricLines
                 .Where(p => Context.LyricLines.IndexOf(p) >= Context.CurrentLyricLineIndex)
@@ -448,6 +461,7 @@ namespace HyPlayer.LyricRenderer
 
         public void LyricView_OnPointerMoved(object sender, PointerRoutedEventArgs e)
         {
+            OnChanged?.Invoke();
             // 指针事件
             // 获取在指针范围的行（二分法查找）
             if (e.Pointer.PointerDeviceType == Windows.Devices.Input.PointerDeviceType.Mouse)
@@ -532,6 +546,7 @@ namespace HyPlayer.LyricRenderer
 
         public void LyricView_OnPointerExited(object sender, PointerRoutedEventArgs e)
         {
+            OnChanged?.Invoke();
             if (Context.PointerFocusingIndex != -1 && Context.LyricLines.Count > Context.PointerFocusingIndex)
                 Context.LyricLines[Context.PointerFocusingIndex].GoToReactionState(ReactionState.Leave, Context);
             Context.PointerFocusingIndex = -1;
@@ -553,6 +568,7 @@ namespace HyPlayer.LyricRenderer
 
         public void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
+            OnChanged?.Invoke();
             foreach (var renderOffsetsKey in Context.RenderOffsets.Keys)
             {
                 if (Context.LyricLines[renderOffsetsKey].Hidden)

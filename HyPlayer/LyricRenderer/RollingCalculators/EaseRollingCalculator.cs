@@ -16,6 +16,8 @@ public abstract class EaseRollingCalculator : LineRollingCalculator
         RenderContext context)
     {
         float progress = 1;
+        var elapsed = context.CurrentLyricTime - context.CurrentKeyframe;
+        if (elapsed < 0) return targetY;
         var gap = currentLine.Id - context.CurrentLyricLineIndex;
         if (!(fromY < targetY) && gap >= 0)
         {
@@ -29,14 +31,7 @@ public abstract class EaseRollingCalculator : LineRollingCalculator
             progress = Math.Clamp((context.CurrentLyricTime - context.CurrentKeyframe) / theoryTime, 0, 1);
             progress = (float)EaseFunction.Ease(progress);
         }
-        if (progress != 0)
-        {
-            return fromY + (targetY - fromY) * progress;
-        }
-        else
-        {
-            return targetY; //弄个Fallback，如果progress是0那就直接返回它应到的目标位置
-        }
+        return fromY + (targetY - fromY) * progress;
     }
 }
 

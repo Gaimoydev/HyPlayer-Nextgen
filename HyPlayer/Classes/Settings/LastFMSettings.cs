@@ -19,11 +19,11 @@ namespace HyPlayer.Classes.Settings
             {
                 if (value == null)
                 {
-                    ApplicationData.Current.LocalSettings.Values[nameof(LastFMSession)] = null;
+                    SettingsBase.SetSettings(nameof(LastFMSession), null);
                 }
                 else
                 {
-                    ApplicationData.Current.LocalSettings.Values[nameof(LastFMSession)] = JsonSerializer.Serialize(value, JsonDefaults.Options);
+                    SettingsBase.SetSettings(nameof(LastFMSession), JsonSerializer.Serialize(value, JsonDefaults.Options));
                 }
             }
         }
@@ -36,7 +36,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(UpdateLastFMNowPlaying), true);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(UpdateLastFMNowPlaying)] = value;
+                SettingsBase.SetSettings(nameof(UpdateLastFMNowPlaying), value);
             }
         }
 
@@ -48,7 +48,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(LastFMScrobble), true);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(LastFMScrobble)] = value;
+                SettingsBase.SetSettings(nameof(LastFMScrobble), value);
             }
         }
 
@@ -60,7 +60,7 @@ namespace HyPlayer.Classes.Settings
             get => GetSettings(nameof(useAiDj), false);
             set
             {
-                ApplicationData.Current.LocalSettings.Values[nameof(useAiDj)] = value;
+                SettingsBase.SetSettings(nameof(useAiDj), value);
             }
         }
     }

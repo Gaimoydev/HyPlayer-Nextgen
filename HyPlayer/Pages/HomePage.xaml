@@ -48,7 +48,7 @@
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1"
                         CornerRadius="6">
-                        <Image Source="{x:Bind Cover}" Stretch="Uniform" />
+                        <Image Source="{x:Bind CardCover}" Stretch="Uniform" />
                     </Border>
                     <Grid
                         Grid.Column="1"
@@ -131,7 +131,7 @@
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1"
                         CornerRadius="6">
-                        <Image Source="{x:Bind Cover}" Stretch="Uniform" />
+                        <Image Source="{x:Bind CardCover}" Stretch="Uniform" />
                     </Border>
                     <Grid
                         Grid.Column="1"
