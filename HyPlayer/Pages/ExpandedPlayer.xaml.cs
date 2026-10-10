@@ -146,7 +146,6 @@ public sealed partial class ExpandedPlayer : Page
         WeakReferenceMessenger.Default.Register<LyricLoadedMessage>(this, (r, _) => { ((ExpandedPlayer)r).WakeLyricCanvas(); ((ExpandedPlayer)r).HyPlayList_OnLyricLoaded(); });
         WeakReferenceMessenger.Default.Register<SeekRequestedMessage>(this, (r, m) => { ((ExpandedPlayer)r).WakeLyricCanvas(); ((ExpandedPlayer)r).HyPlayList_OnManualSeek(); });
         WeakReferenceMessenger.Default.Register<GlobalSecondTimerMessage>(this, (r, _) => ((ExpandedPlayer)r).HyPlayList_OnTimerTicked());
-        Window.Current.SizeChanged += Current_SizeChanged;
         var wakeHandler = new PointerEventHandler((_, _) => WakeLyricCanvas());
         LuminousBackground.AddHandler(PointerMovedEvent, wakeHandler, true);
         LuminousBackground.AddHandler(PointerWheelChangedEvent, wakeHandler, true);
@@ -515,7 +514,7 @@ public sealed partial class ExpandedPlayer : Page
                 (Brush)new BooleanToWindowBrushesConverter().Convert(
                     _settings.acrylicBackgroundStatus, null, null,
                     null);
-        NowPlaybackSpeed = "x" + _player.GetPlaybackSourceSpeed(_state.NowPlayingItem.PlayItem?.AudioGraphPlaybackSource);
+        NowPlaybackSpeed = "x" + GetCurrentPlaybackSpeed();
         if (_settings.pureLyricFocusingColor is not null)
         {
             _pureAccentBrushCache ??= _uiState.BrushManagement.AccentBrush;
@@ -649,7 +648,7 @@ public sealed partial class ExpandedPlayer : Page
             }
 
             _needsRedesign = true;
-            NowPlaybackSpeed = "x" + _player.GetPlaybackSourceSpeed(_state.NowPlayingItem.PlayItem?.AudioGraphPlaybackSource);
+            NowPlaybackSpeed = "x" + GetCurrentPlaybackSpeed();
         });
     }
 
@@ -937,7 +936,7 @@ public sealed partial class ExpandedPlayer : Page
         }
     }
 
-    private async Task<bool> IsBrightAsync(IRandomAccessStream stream)
+    private async Task<bool> IsBrightAsync(IRandomAccessStream stream, int version = -1)
     {
         _lastSong = _state.NowPlayingItem;
         var finalResult = false; //在不手动指定背景类型为2至5时需要执行颜色采样
@@ -954,41 +953,47 @@ public sealed partial class ExpandedPlayer : Page
         }
         try
         {
-            BitmapDecoder decoder = await BitmapDecoder.CreateAsync(stream);
-            var colors = await ImageDecoder.GetPixelColor(decoder);
+            var colors = await Task.Run(async () =>
+            {
+                var decoder = await BitmapDecoder.CreateAsync(stream);
+                return await ImageDecoder.GetPixelColor(decoder);
+            });
             ThemeColorResult themeColor;
             PaletteResult palette;
             if (_settings.expandedPlayerBackgroundType != BackgroundType.Animated && _settings.expandedPlayerBackgroundType != BackgroundType.Isolation)
             {
-                themeColor = _settings.ColorGeneratorType switch
+                themeColor = await Task.Run(() => _settings.ColorGeneratorType switch
                 {
-                    ColorGeneratorType.OctTree => await PaletteGenerators.OctTreePaletteGenerator.CreateThemeColor(colors, _settings.ImpressionistIgnoreWhite),
-                    _ => await PaletteGenerators.KMeansPaletteGenerator.CreateThemeColor(colors, _settings.ImpressionistIgnoreWhite, _settings.ImpressionistLABSpace),
-                };
+                    ColorGeneratorType.OctTree => PaletteGenerators.OctTreePaletteGenerator.CreateThemeColor(colors, _settings.ImpressionistIgnoreWhite),
+                    _ => PaletteGenerators.KMeansPaletteGenerator.CreateThemeColor(colors, _settings.ImpressionistIgnoreWhite, _settings.ImpressionistLABSpace),
+                });
+                if (IsStaleCoverRefresh(version)) return !themeColor.ColorIsDark;
                 albumMainColor = Color.FromArgb(255, (byte)themeColor.Color.X, (byte)themeColor.Color.Y, (byte)themeColor.Color.Z);
             }
             else
             {
-                palette = _settings.ColorGeneratorType switch
+                var colorCount = _settings.expandedPlayerBackgroundType is BackgroundType.Animated ? 9 : 4;
+                palette = await Task.Run(() => _settings.ColorGeneratorType switch
                 {
-                    ColorGeneratorType.KMeans => await PaletteGenerators.KMeansPaletteGenerator.CreatePalette(
+                    ColorGeneratorType.KMeans => PaletteGenerators.KMeansPaletteGenerator.CreatePalette(
                                                 colors,
-                                                _settings.expandedPlayerBackgroundType is BackgroundType.Animated ? 9 : 4,
+                                                colorCount,
                                                 _settings.ImpressionistIgnoreWhite,
                                                 _settings.ImpressionistLABSpace,
                                                 _settings.ImpressionistUseKMeansPP),
-                    ColorGeneratorType.OctTree => palette = await PaletteGenerators.OctTreePaletteGenerator.CreatePalette(
+                    ColorGeneratorType.OctTree => PaletteGenerators.OctTreePaletteGenerator.CreatePalette(
                                                 colors,
-                                                _settings.expandedPlayerBackgroundType is BackgroundType.Animated ? 9 : 4,
+                                                colorCount,
                                                 _settings.ImpressionistIgnoreWhite),
-                    _ => await AutoPaletteGenerator.CreatePalette(
+                    _ => AutoPaletteGenerator.CreatePalette(
                                                 colors,
-                                                _settings.expandedPlayerBackgroundType is BackgroundType.Animated ? 9 : 4,
+                                                colorCount,
                                                 _settings.ImpressionistIgnoreWhite,
                                                 _settings.ImpressionistLABSpace,
                                                 _settings.ImpressionistUseKMeansPP),
-                };
+                });
                 themeColor = palette.ThemeColor;
+                if (IsStaleCoverRefresh(version)) return !themeColor.ColorIsDark;
                 _albumColors = [.. palette.Palette.Select(quantizedColor => Color.FromArgb(255, (byte)quantizedColor.X, (byte)quantizedColor.Y, (byte)quantizedColor.Z))];
                 albumMainColor = Color.FromArgb(255, (byte)themeColor.Color.X, (byte)themeColor.Color.Y, (byte)themeColor.Color.Z);
                 _albumColorVectors = [.. palette.Palette.Select(t => t / 255)];
@@ -1014,11 +1019,25 @@ public sealed partial class ExpandedPlayer : Page
         }
         return finalResult;
     }
+    private double GetCurrentPlaybackSpeed()
+    {
+        try
+        {
+            var playbackSource = _state.NowPlayingItem?.PlayItem?.AudioGraphPlaybackSource;
+            return playbackSource is null ? 1 : _player.GetPlaybackSourceSpeed(playbackSource);
+        }
+        catch
+        {
+            return 1;
+        }
+    }
+
     private void BtnSpeedMinusClick(object sender, RoutedEventArgs e)
     {
         if (_state.NowPlayingItem == null) return;
         var playbackSource = _state.NowPlayingItem.PlayItem?.AudioGraphPlaybackSource;
-        var currentSpeed = _player.GetPlaybackSourceSpeed(playbackSource);
+        if (playbackSource is null) return;
+        var currentSpeed = GetCurrentPlaybackSpeed();
         var newSpeed = Math.Max(0.5, currentSpeed - 0.1);
         _player.SetPlaybackSourceSpeed(newSpeed, playbackSource);
         NowPlaybackSpeed = "x" + newSpeed;
@@ -1028,7 +1047,8 @@ public sealed partial class ExpandedPlayer : Page
     {
         if (_state.NowPlayingItem == null) return;
         var playbackSource = _state.NowPlayingItem.PlayItem?.AudioGraphPlaybackSource;
-        var currentSpeed = _player.GetPlaybackSourceSpeed(playbackSource);
+        if (playbackSource is null) return;
+        var currentSpeed = GetCurrentPlaybackSpeed();
         var newSpeed = Math.Min(2.0, currentSpeed + 0.1);
         _player.SetPlaybackSourceSpeed(newSpeed, playbackSource);
         NowPlaybackSpeed = "x" + newSpeed;
@@ -1095,6 +1115,8 @@ public sealed partial class ExpandedPlayer : Page
 
     private void Page_Loaded(object sender, RoutedEventArgs e)
     {
+        Window.Current.SizeChanged -= Current_SizeChanged;
+        Window.Current.SizeChanged += Current_SizeChanged;
         (_uiState.PageMain as MainPage)!.IsExpandedPlayerInitialized = true;
         ToggleButtonSound.IsChecked = _uiState.ShowLyricSound;
         ToggleButtonTranslation.IsChecked = _uiState.ShowLyricTrans;
@@ -1247,18 +1269,26 @@ public sealed partial class ExpandedPlayer : Page
     }
 
 
+    private bool IsStaleCoverRefresh(int version) => version != -1 && version != System.Threading.Volatile.Read(ref _coverRefreshVersion);
+
+    private int _coverRefreshVersion;
+
     public async void RefreshAlbumCover(HyPlayItem playItem)
     {
         if (_state.CoverStream == null || _uiState.IsInBackground) return;
+        if (playItem != null && playItem != _state.NowPlayingItem) return;
+        var version = System.Threading.Interlocked.Increment(ref _coverRefreshVersion);
         using var stream = _state.CoverStream.CloneStream();
-        var isBright = await IsBrightAsync(stream);
+        var isBright = await IsBrightAsync(stream, version);
+        if (version != System.Threading.Volatile.Read(ref _coverRefreshVersion)) return;
+        WakeLyricCanvas();
         _ = _notification.InvokeOnUIThread(async () =>
         {
             if (!_settings.noImage)
             {
                 try
                 {
-                    if (playItem != _state.NowPlayingItem) return;
+                    if (playItem != _state.NowPlayingItem || version != _coverRefreshVersion) return;
                     using var cover = _state.CoverStream.CloneStream();
                     var brushManagement = _uiState.BrushManagement;
                     brushManagement.IsBright = isBright;
@@ -1360,6 +1390,7 @@ public sealed partial class ExpandedPlayer : Page
                             _shaderEffect.Properties["RandomValue3"] = (float)Random.Shared.Next(-50, +50);
                         }
                     }
+                    WakeLyricCanvas();
                 }
                 catch
                 {

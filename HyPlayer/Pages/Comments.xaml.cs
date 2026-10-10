@@ -296,7 +296,7 @@ public sealed partial class Comments : Page
         if ((sender?.As<ScrollViewer>()).VerticalOffset > y + 25)
             BackToTop.Visibility = Visibility.Visible;
         else BackToTop.Visibility = Visibility.Collapsed;
-        if ((sender?.As<ScrollViewer>()).VerticalOffset < 15)
+        if ((sender?.As<ScrollViewer>()).VerticalOffset < 15 && AllCommentsContainer.Visibility == Visibility.Visible)
         {
             TimeSpan delay = TimeSpan.FromMilliseconds(90);//先别急，如果是回到顶部触发的会滚回去一点
             ThreadPoolTimer DelayTimer = ThreadPoolTimer.CreateTimer(
@@ -334,6 +334,7 @@ public sealed partial class Comments : Page
             () =>
            {
                HotCommentsScroll = HotComments.CommentPresentScrollViewer;
+               HotCommentsScroll.ViewChanged -= HotCommentsScroll_ViewChanged;
                HotCommentsScroll.ViewChanged += HotCommentsScroll_ViewChanged;
            });
 
@@ -355,6 +356,9 @@ public sealed partial class Comments : Page
 
     private void ShiftCommentList(bool direction)
     {
+        if (direction ? AllCommentsContainer.Visibility == Visibility.Visible
+                      : HotCommentsContainer.Visibility == Visibility.Visible)
+            return;
         IsShiftingPage = true;
         if (direction)
         {
@@ -375,6 +379,7 @@ public sealed partial class Comments : Page
                     var point = transform.TransformPoint(new Point(0, 25));//要超过判定区域，还要预留一点
                     var y = point.Y + MainScroll.VerticalOffset;
                     MainScroll.ChangeView(null, y, null, false);
+                    MainScroll.ViewChanged -= MainScroll_ViewChanged;
                     MainScroll.ViewChanged += MainScroll_ViewChanged;
                 });
 

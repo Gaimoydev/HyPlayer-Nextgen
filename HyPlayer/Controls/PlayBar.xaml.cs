@@ -267,8 +267,22 @@ DoubleAnimation verticalAnimation;
         PlayBarBackgroundFadeOut.Begin();
         //(Ioc.Default.GetRequiredService<IUIStateService>().PageMain as MainPage).MainFrame.Visibility = Visibility.Collapsed;
         (_uiState.PageMain as MainPage).ExpandedPlayer.Visibility = Visibility.Visible;
-        (_uiState.PageMain as MainPage).ExpandedPlayer.Navigate(typeof(ExpandedPlayer), null,
-            new EntranceNavigationTransitionInfo());
+        try
+        {
+            (_uiState.PageMain as MainPage).ExpandedPlayer.Navigate(typeof(ExpandedPlayer), null,
+                new EntranceNavigationTransitionInfo());
+        }
+        catch (Exception ex)
+        {
+            ButtonExpand.Visibility = Visibility.Visible;
+            ButtonCollapse.Visibility = Visibility.Collapsed;
+            PlayBarBackgroundFadeIn.Begin();
+            (_uiState.PageMain as MainPage).ExpandedPlayer.Visibility = Visibility.Collapsed;
+            var region = (_uiState.PageBase as BasePage).AppTitleBar.FindDescendant("PART_DragRegion")?.As<Grid>();
+            Window.Current.SetTitleBar(region);
+            _notification.ShowMessage("无法打开歌词页面", ex.Message);
+            return;
+        }
         (_uiState.PageMain as MainPage).GridPlayBar.BorderThickness = new Thickness(0);
         (_uiState.PageMain as MainPage).MainFrame.Visibility = Visibility.Collapsed;
         (_uiState.PageMain as MainPage).GridPlayBarMarginBlur.Visibility = Visibility.Collapsed;

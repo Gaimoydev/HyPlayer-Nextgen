@@ -451,7 +451,7 @@ public sealed partial class SongsList : UserControl
         IsAddingSongToPlaylist = true;
         try
         {
-            if (ListSource != null && ListSource != "Content" && Songs.Count == VisibleSongs.Count)
+            if (!string.IsNullOrEmpty(ListSource) && ListSource != "Content" && Songs.Count == VisibleSongs.Count)
             {
                 if (_playlist.PlaySourceId != ListSource ||
                     _playlist.Items.Count != VisibleSongs.Count(t => t.IsAvailable))
@@ -479,8 +479,7 @@ public sealed partial class SongsList : UserControl
                 _playlist.PlaySourceId = "Content";
             }
 
-            if (ListSource?[..2] == "pl" ||
-                ListSource?[..2] == "al")
+            if (ListSource != null && (ListSource.StartsWith("pl") || ListSource.StartsWith("al")))
                 _playlist.PlaySourceId = ListSource;
 
             if (!shiftSong)

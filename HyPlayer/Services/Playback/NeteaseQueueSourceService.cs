@@ -30,6 +30,8 @@ public sealed class NeteaseQueueSourceService : INeteaseQueueSourceService
     /// <inheritdoc />
     public async Task<NeteaseQueueSourceLoadResult> LoadSourceAsync(string sourceId)
     {
+        if (string.IsNullOrEmpty(sourceId) || sourceId.Length < 2)
+            return NeteaseQueueSourceLoadResult.Failed;
         try
         {
             var prefix = sourceId[..2];

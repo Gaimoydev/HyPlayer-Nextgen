@@ -37,10 +37,13 @@ public sealed class PlaybackNotificationService : IPlaybackNotificationService
         _taskRunner = taskRunner;
     }
 
+    private int _trackChangeVersion;
+
     /// <inheritdoc />
     public async Task OnTrackChangedAsync(HyPlayItem item)
     {
         if (item == null) return;
+        var version = System.Threading.Interlocked.Increment(ref _trackChangeVersion);
         UpdateSmtcDisplayInfo(item);
         
         WeakReferenceMessenger.Default.Send(new TrackChangedMessage(item));
@@ -48,7 +51,8 @@ public sealed class PlaybackNotificationService : IPlaybackNotificationService
         // 1. 刷新封面
         if (!_setting.noImage)
         {
-            await RefreshCoverAsync(item);
+            await RefreshCoverAsync(item, version);
+            if (version != System.Threading.Volatile.Read(ref _trackChangeVersion)) return;
             UpdateSmtcThumbnail();
             WeakReferenceMessenger.Default.Send(new CoverChangedMessage(item));
         }
@@ -61,7 +65,9 @@ public sealed class PlaybackNotificationService : IPlaybackNotificationService
     }
 
     /// <inheritdoc />
-    public async Task RefreshCoverAsync(HyPlayItem item)
+    public Task RefreshCoverAsync(HyPlayItem item) => RefreshCoverAsync(item, -1);
+
+    private async Task RefreshCoverAsync(HyPlayItem item, int version)
     {
         try
         {
@@ -82,6 +88,8 @@ public sealed class PlaybackNotificationService : IPlaybackNotificationService
                 var bytes = await response.Content.ReadAsByteArrayAsync();
                 buffer = bytes.AsBuffer();
             }
+
+            if (version != -1 && version != System.Threading.Volatile.Read(ref _trackChangeVersion)) return;
 
             // 替换封面流
             var newStream = new InMemoryRandomAccessStream();

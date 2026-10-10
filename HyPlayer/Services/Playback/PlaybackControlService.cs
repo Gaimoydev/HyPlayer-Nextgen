@@ -241,7 +241,12 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
             item.PlayItem = null;
 
             var mediaSource = await _mediaSourceService.CreateMediaSourceAsync(item, ct);
-            if (mediaSource is null) return;
+            if (mediaSource is null)
+            {
+                if (!ct.IsCancellationRequested)
+                    _notification.ShowMessage("歌曲无法播放", $"未能获取 {item.Name} 的音源");
+                return;
+            }
 
             ct.ThrowIfCancellationRequested();          
             item.PlayItem ??= new PlayItem();
@@ -263,6 +268,17 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
         catch (OperationCanceledException)
         {
             // 加载被取消，静默忽略
+        }
+        catch (Exception ex)
+        {
+            if (item.PlayItem?.AudioGraphPlaybackSource is { } failedSource)
+            {
+                item.PlayItem.AudioGraphPlaybackSource = null;
+                failedSource.Dispose();
+            }
+            if (ct.IsCancellationRequested) return;
+            _notification.ShowMessage("歌曲播放失败", $"{item.Name}: {ex.Message}");
+            throw;
         }
     }
 

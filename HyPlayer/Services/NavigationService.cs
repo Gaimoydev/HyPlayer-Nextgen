@@ -130,6 +130,7 @@ public class NavigationService : INavigationService
     /// <inheritdoc />
     public async Task NavigateToResourceAsync(string resourceId)
     {
+        if (string.IsNullOrEmpty(resourceId) || resourceId.Length < 2) return;
         switch (resourceId[..2])
         {
             case "al":

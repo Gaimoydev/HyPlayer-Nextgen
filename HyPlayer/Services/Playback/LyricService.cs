@@ -3,6 +3,7 @@ using ALRC.Converters.Enhancers;
 using CommunityToolkit.Mvvm.Messaging;
 using HyPlayer.Classes;
 using HyPlayer.Classes.LyricParser.Abstraction;
+using HyPlayer.Classes.Settings;
 using HyPlayer.NeteaseApi;
 using HyPlayer.NeteaseApi.ApiContracts;
 using HyPlayer.NeteaseApi.ApiContracts.Song;
@@ -72,6 +73,8 @@ public sealed class LyricService : ILyricService
                 _state.LyricInfo = cached;
                 _state.LyricIndex = 0;
                 WeakReferenceMessenger.Default.Send(new LyricLoadedMessage(cached));
+                if (cached.PureLyricInfo is not HyALRCLyricInfo)
+                    await TryLoadAmllTtmlAsync(item, cached, ct);
                 return;
             }
         }
@@ -298,16 +301,61 @@ public sealed class LyricService : ILyricService
         }
     }
 
+    private readonly HashSet<string> _amllMissingIds = [];
+
+    private static readonly string[] AmllFallbackMirrors =
+    [
+        "https://amll-ttml-db.gbclstudio.cn/ncm-lyrics/[NCM_ID].ttml",
+        LyricSettings.DefaultAmllTtmlMirrorUrl,
+        "https://amll-ttml-db.stevexmh.net/ncm/[NCM_ID]"
+    ];
+
+    private async Task<string?> FetchAmllTtmlAsync(string id, CancellationToken ct)
+    {
+        var mirrors = new List<string> { _setting.amllTtmlMirrorUrl };
+        foreach (var mirror in AmllFallbackMirrors)
+            if (!mirrors.Contains(mirror)) mirrors.Add(mirror);
+
+        var allMissing = true;
+        foreach (var mirror in mirrors)
+        {
+            if (string.IsNullOrWhiteSpace(mirror) || !mirror.Contains("[NCM_ID]")) continue;
+            try
+            {
+                using var message = new HttpRequestMessage(HttpMethod.Get, mirror.Replace("[NCM_ID]", id));
+                message.Headers.Add("User-Agent", "HyPlayer LyricsClient");
+                using var response = await _httpClient.SendAsync(message, ct);
+                if (response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Forbidden) continue;
+                allMissing = false;
+                if (!response.IsSuccessStatusCode) continue;
+                var content = await response.Content.ReadAsStringAsync(ct);
+                if (content.AsSpan().TrimStart().StartsWith("<tt", StringComparison.Ordinal)) return content;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                allMissing = false;
+            }
+        }
+
+        if (allMissing)
+            lock (_amllMissingIds) _amllMissingIds.Add(id);
+        return null;
+    }
+
     private async Task TryLoadAmllTtmlAsync(HyPlayItem item, HyLyricInfo lyricInfo, CancellationToken ct)
     {
         try
         {
             if (!_setting.enableAmllTtmlDb || item.ItemType != HyPlayItemType.Netease || string.IsNullOrWhiteSpace(item.Id)) return;
+            lock (_amllMissingIds)
+                if (_amllMissingIds.Contains(item.Id)) return;
 
-            using var message = new HttpRequestMessage(HttpMethod.Get, _setting.amllTtmlMirrorUrl.Replace("[NCM_ID]", item.Id));
-            message.Headers.Add("User-Agent", "HyPlayer LyricsClient");
-            using var ttml = await _httpClient.SendAsync(message, ct);
-            var ttmlContent = await ttml.Content.ReadAsStringAsync(ct);
+            var ttmlContent = await FetchAmllTtmlAsync(item.Id, ct);
+            if (ttmlContent is null) return;
             var ttmlConverter = new AppleSyllableConverter();
             var lrcConverter = new LrcConverter();
             var lrcTranslationConverter = new LrcTranslationEnhancer();
