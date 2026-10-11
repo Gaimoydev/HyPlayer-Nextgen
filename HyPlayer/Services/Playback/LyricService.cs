@@ -74,7 +74,7 @@ public sealed class LyricService : ILyricService
             var pure = item.ItemType switch
             {
                 HyPlayItemType.Netease => await LoadNcLyricAsync(item, ct),
-                HyPlayItemType.Local => await LoadLocalLyricAsync(item),
+                HyPlayItemType.Local or HyPlayItemType.LocalProgressive => await LoadLocalLyricAsync(item),
                 _ => new PureLyricInfo()
             };
             lines = pure is KaraokLyricInfo ? Utils.ConvertKaraok(pure) : Utils.ConvertPureLyric(pure.PureLyrics);
@@ -126,7 +126,7 @@ public sealed class LyricService : ILyricService
         var pureLyricInfo = item.ItemType switch
         {
             HyPlayItemType.Netease => await LoadNcLyricAsync(item, ct),
-            HyPlayItemType.Local => await LoadLocalLyricAsync(item),
+            HyPlayItemType.Local or HyPlayItemType.LocalProgressive => await LoadLocalLyricAsync(item),
             _ => new PureLyricInfo()
         };
 
@@ -329,19 +329,64 @@ public sealed class LyricService : ILyricService
 
     private static async Task<PureLyricInfo> LoadLocalLyricAsync(HyPlayItem item)
     {
+        if (string.IsNullOrEmpty(item.Url)) return new PureLyricInfo();
         try
         {
             var lrcPath = Path.ChangeExtension(item.Url, "lrc");
             var file = await StorageFile.GetFileFromPathAsync(lrcPath);
             var text = await FileIO.ReadTextAsync(file);
-            return new PureLyricInfo { PureLyrics = text };
+            if (!string.IsNullOrWhiteSpace(text)) return new PureLyricInfo { PureLyrics = text };
+        }
+        catch (OperationCanceledException) { throw; }
+        catch
+        {
+        }
+
+        try
+        {
+            var embedded = await Task.Run(async () => ReadEmbeddedLyric(item.LocalStorageFile ?? await StorageFile.GetFileFromPathAsync(item.Url)));
+            if (!string.IsNullOrWhiteSpace(embedded)) return new PureLyricInfo { PureLyrics = embedded };
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Lyric error: {ex.Message}");
-            return new PureLyricInfo();
         }
+        return new PureLyricInfo();
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex LrcTimestamp = new(@"\[\d{1,3}:\d{1,2}([.:]\d{1,3})?\]");
+
+    private static string? ReadEmbeddedLyric(StorageFile file)
+    {
+        using var abstraction = new UwpStorageFileAbstraction(file);
+        using var tagFile = TagLibHelper.Create(abstraction, file.FileType);
+        if (tagFile.GetTag(TagLib.TagTypes.Id3v2, false) is TagLib.Id3v2.Tag id3)
+        {
+            foreach (var frame in id3.GetFrames<TagLib.Id3v2.SynchronisedLyricsFrame>())
+            {
+                if (frame.Format != TagLib.Id3v2.TimestampFormat.AbsoluteMilliseconds || frame.Text.Length == 0) continue;
+                var builder = new System.Text.StringBuilder();
+                foreach (var line in frame.Text)
+                {
+                    var time = TimeSpan.FromMilliseconds(line.Time);
+                    builder.Append($"[{(int)time.TotalMinutes:00}:{time.Seconds:00}.{time.Milliseconds / 10:00}]{line.Text?.Trim()}\n");
+                }
+                return builder.ToString();
+            }
+        }
+
+        var lyrics = tagFile.Tag.Lyrics;
+        if (string.IsNullOrWhiteSpace(lyrics)) return null;
+        lyrics = lyrics.Replace("\r\n", "\n").Replace('\r', '\n');
+        if (LrcTimestamp.IsMatch(lyrics)) return lyrics;
+        var plain = new System.Text.StringBuilder();
+        foreach (var line in lyrics.Split('\n'))
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            plain.Append("[00:00.00]").Append(line.Trim()).Append('\n');
+        }
+        return plain.ToString();
     }
 
     private readonly HashSet<string> _amllMissingIds = [];
