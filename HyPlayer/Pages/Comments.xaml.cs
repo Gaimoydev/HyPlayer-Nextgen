@@ -183,14 +183,34 @@ public sealed partial class Comments : Page
     {
         page++;
         _commentLoaderTask = LoadComments(sortType);
-        ScrollTop();
+        ScrollToAllCommentsTop();
     }
 
     private void PrevPage_Click(object sender, RoutedEventArgs e)
     {
         page--;
         _commentLoaderTask = LoadComments(sortType);
-        ScrollTop();
+        ScrollToAllCommentsTop();
+    }
+
+    private DateTime _suppressHotSwitchUntil;
+
+    private async void ScrollToAllCommentsTop()
+    {
+        _suppressHotSwitchUntil = DateTime.UtcNow.AddSeconds(1.5);
+        MainScroll.ChangeView(null, 0, null, true);
+        if (_commentLoaderTask is { } loader)
+        {
+            try
+            {
+                await loader;
+            }
+            catch
+            {
+            }
+        }
+        _suppressHotSwitchUntil = DateTime.UtcNow.AddSeconds(1.5);
+        MainScroll.ChangeView(null, 0, null, true);
     }
 
     private void SendComment_Click(object sender, RoutedEventArgs e)
@@ -256,36 +276,13 @@ public sealed partial class Comments : Page
         if (int.TryParse(PageSelect.Text, out page))
         {
             _commentLoaderTask = LoadComments(sortType);
-            ScrollTop();
+            ScrollToAllCommentsTop();
         }
-    }
-
-    private void ScrollTop()
-    {
-        var transform = AllCmtsTB.TransformToVisual(MainScroll);
-        var point = transform.TransformPoint(new Point(0, -1000000));//一定要这么大
-        var y = point.Y + MainScroll.VerticalOffset;
-        MainScroll.ChangeView(null, y, null, false);
-        TimeSpan delay = TimeSpan.FromMilliseconds(320);//稍微等等再滚回去，免得回到热评区域
-        ThreadPoolTimer DelayTimer = ThreadPoolTimer.CreateTimer(
-    (source) =>
-
-    {
-        _ = _notification.InvokeOnUIThread(
-        () =>
-        {
-            point = transform.TransformPoint(new Point(0, 25));//要超过判定区域，还要预留一点
-            y = point.Y + MainScroll.VerticalOffset;
-            MainScroll.ChangeView(null, y, null, false);
-        });
-
-    }, delay);
-
     }
 
     private void BackToTop_Click(object sender, RoutedEventArgs e)
     {
-        ScrollTop();
+        ScrollToAllCommentsTop();
     }
 
     private void MainScroll_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
@@ -296,6 +293,7 @@ public sealed partial class Comments : Page
         if ((sender?.As<ScrollViewer>()).VerticalOffset > y + 25)
             BackToTop.Visibility = Visibility.Visible;
         else BackToTop.Visibility = Visibility.Collapsed;
+        if (DateTime.UtcNow < _suppressHotSwitchUntil) return;
         if ((sender?.As<ScrollViewer>()).VerticalOffset < 15 && AllCommentsContainer.Visibility == Visibility.Visible)
         {
             TimeSpan delay = TimeSpan.FromMilliseconds(90);//先别急，如果是回到顶部触发的会滚回去一点
@@ -306,7 +304,7 @@ public sealed partial class Comments : Page
             _ = _notification.InvokeOnUIThread(
             () =>
             {
-                if ((sender?.As<ScrollViewer>()).VerticalOffset < 15)
+                if (DateTime.UtcNow >= _suppressHotSwitchUntil && (sender?.As<ScrollViewer>()).VerticalOffset < 15)
                     ShiftCommentList(false);//回到热评
             });
 
@@ -319,7 +317,7 @@ public sealed partial class Comments : Page
         if (int.TryParse(PageSelect.Text, out page))
         {
             _commentLoaderTask = LoadComments(sortType);
-            ScrollTop();
+            ScrollToAllCommentsTop();
         }
     }
 
