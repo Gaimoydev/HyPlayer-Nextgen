@@ -1,3 +1,5 @@
+using CommunityToolkit.Mvvm.DependencyInjection;
+using HyPlayer.UWP.Chopin.Abstractions.Models;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,5 +29,25 @@ public static class MemoryReclaimer
         _ = Task.Run(Collect);
     }
 
-    private static void Collect() => GC.Collect(2, GCCollectionMode.Forced, blocking: false);
+    private static void Collect()
+    {
+        if (RealtimeAudioBusy())
+        {
+            Schedule();
+            return;
+        }
+        GC.Collect(2, GCCollectionMode.Forced, blocking: false);
+    }
+
+    public static bool RealtimeAudioBusy()
+    {
+        try
+        {
+            return Ioc.Default.GetRequiredService<AudioGraphPlayer>().RealtimeCallbacksActive;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }
