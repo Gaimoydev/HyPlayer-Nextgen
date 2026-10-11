@@ -54,7 +54,16 @@ namespace HyPlayer
 
         public int Volume { get => Playback.Volume; set { Playback.Volume = value; OnPropertyChanged(); } }
         public string audioRate { get => Playback.audioRate; set { Playback.audioRate = value; OnPropertyChanged(); } }
-        public bool CrossFade { get => Playback.CrossFade; set { Playback.CrossFade = value; OnPropertyChanged(); } }
+        public bool CrossFade { get => Playback.CrossFade; set { Playback.CrossFade = value; OnPropertyChanged(); OnPropertyChanged(nameof(TransitionModeIndex)); } }
+        public string TransitionMode { get => Playback.TransitionMode; set { Playback.TransitionMode = value; OnPropertyChanged(); OnPropertyChanged(nameof(TransitionModeIndex)); OnPropertyChanged(nameof(TransitionUsesDuration)); OnPropertyChanged(nameof(TransitionIsAutoMix)); OnPropertyChanged(nameof(CrossFade)); } }
+        public static readonly string[] TransitionModeIds = ["dir", "fde", "xfd", "gap", "mix"];
+        public int TransitionModeIndex { get => Math.Max(0, Array.IndexOf(TransitionModeIds, TransitionMode)); set { if (value >= 0 && value < TransitionModeIds.Length) TransitionMode = TransitionModeIds[value]; } }
+        public bool TransitionUsesDuration => TransitionMode is "fde" or "xfd" or "mix";
+        public bool TransitionIsAutoMix => TransitionMode == "mix";
+        public double AutoMixMaxOverlap { get => Playback.AutoMixMaxOverlap; set { Playback.AutoMixMaxOverlap = value; OnPropertyChanged(); } }
+        public bool AutoMixTimeStretch { get => Playback.AutoMixTimeStretch; set { Playback.AutoMixTimeStretch = value; OnPropertyChanged(); } }
+        public bool AutoMixKeepAlbumGapless { get => Playback.AutoMixKeepAlbumGapless; set { Playback.AutoMixKeepAlbumGapless = value; OnPropertyChanged(); } }
+        public bool PlaybackFade { get => Playback.PlaybackFade; set { Playback.PlaybackFade = value; OnPropertyChanged(); } }
         public double CrossFadeTime { get => Playback.CrossFadeTime; set { Playback.CrossFadeTime = value; OnPropertyChanged(); } }
         public bool EnableAudioGain { get => Playback.EnableAudioGain; set { Playback.EnableAudioGain = value; OnPropertyChanged(); } }
         public bool ABRepeatStatus { get => Playback.ABRepeatStatus; set { Playback.ABRepeatStatus = value; OnPropertyChanged(); } }
@@ -63,7 +72,39 @@ namespace HyPlayer
         public TimeSpan ABEndPoint { get => Playback.ABEndPoint; set { Playback.ABEndPoint = value; OnPropertyChanged(); } }
         public string ABEndPointFriendlyValue => Playback.ABEndPointFriendlyValue;
         public bool enableCache { get => Playback.enableCache; set { Playback.enableCache = value; OnPropertyChanged(); } }
-        public string cacheDir { get => Playback.cacheDir; set { Playback.cacheDir = value; OnPropertyChanged(); } }
+        public string cacheDir { get => Playback.cacheDir; set { Playback.cacheDir = value; OnPropertyChanged(); OnPropertyChanged(nameof(cacheDirIsCustom)); } }
+        public bool cacheDirIsCustom => GetSettings<string>(nameof(cacheDir), null) is { } stored && !StorageMaintenance.IsSamePath(stored, ApplicationData.Current.LocalCacheFolder.Path);
+        public static readonly double[] CacheLimitPresets = [1, 5, 10, 15, 20];
+        public double cacheLimitGB
+        {
+            get => Playback.cacheLimitGB;
+            set
+            {
+                if (double.IsNaN(value)) return;
+                Playback.cacheLimitGB = Math.Clamp(value, 0.5, 4096);
+                OnPropertyChanged();
+                StorageMaintenance.ScheduleTrim(TimeSpan.FromSeconds(2));
+            }
+        }
+        public int CacheLimitIndex
+        {
+            get
+            {
+                if (Playback.cacheLimitCustom) return CacheLimitPresets.Length;
+                var index = Array.IndexOf(CacheLimitPresets, Playback.cacheLimitGB);
+                return index < 0 ? CacheLimitPresets.Length : index;
+            }
+            set
+            {
+                if (value < 0 || value > CacheLimitPresets.Length) return;
+                Playback.cacheLimitCustom = value == CacheLimitPresets.Length;
+                if (value < CacheLimitPresets.Length) cacheLimitGB = CacheLimitPresets[value];
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(CacheLimitIsCustom));
+                OnPropertyChanged(nameof(cacheLimitGB));
+            }
+        }
+        public bool CacheLimitIsCustom => CacheLimitIndex == CacheLimitPresets.Length;
         public string AudioRenderDevice { get => Playback.AudioRenderDevice; set { Playback.AudioRenderDevice = value; OnPropertyChanged(); } }
         public bool EnableFFT { get => Playback.EnableFFT; set { Playback.EnableFFT = value; OnPropertyChanged(); } }
         public string ActiveStrategyId { get => Playback.ActiveStrategyId; set { Playback.ActiveStrategyId = value; OnPropertyChanged(); } }
@@ -73,6 +114,20 @@ namespace HyPlayer
         public ThemeRequest themeRequest { get => UI.themeRequest; set { UI.themeRequest = value; OnPropertyChanged(); } }
         public bool expandAnimation { get => UI.expandAnimation; set { UI.expandAnimation = value; OnPropertyChanged(); } }
         public bool forceMemoryGarbage { get => UI.forceMemoryGarbage; set { UI.forceMemoryGarbage = value; OnPropertyChanged(); } }
+        public static readonly int[] BackgroundReleasePresets = [30, 60, 300, 600, 0];
+        public int BackgroundReleaseSeconds => UI.BackgroundReleaseSeconds;
+        public int BackgroundReleaseIndex
+        {
+            get => Math.Max(0, Array.IndexOf(BackgroundReleasePresets, UI.BackgroundReleaseSeconds));
+            set { if (value >= 0 && value < BackgroundReleasePresets.Length) { UI.BackgroundReleaseSeconds = BackgroundReleasePresets[value]; OnPropertyChanged(); } }
+        }
+        public static readonly int[] MemoryLimitPresets = [MemoryGovernor.AutoLimit, 512, 1024, 2048, 3072, 4096, 0];
+        public int MemoryLimitMB => UI.MemoryLimitMB;
+        public int MemoryLimitIndex
+        {
+            get => Math.Max(0, Array.IndexOf(MemoryLimitPresets, UI.MemoryLimitMB));
+            set { if (value >= 0 && value < MemoryLimitPresets.Length) { UI.MemoryLimitMB = MemoryLimitPresets[value]; OnPropertyChanged(); } }
+        }
         public bool noImage { get => UI.noImage; set { UI.noImage = value; OnPropertyChanged(); } }
         public LyricAlignment lyricAlignment { get => UI.lyricAlignment; set { UI.lyricAlignment = value; OnPropertyChanged(); } }
         public int lyricSize { get => UI.lyricSize; set { UI.lyricSize = value; OnPropertyChanged(); } }
@@ -86,7 +141,7 @@ namespace HyPlayer
         public bool acrylicBackgroundStatus { get => UI.acrylicBackgroundStatus; set { UI.acrylicBackgroundStatus = value; OnPropertyChanged(); } }
         public static bool acrylicAvailabiliity => HyPlayerUISettings.acrylicAvailabiliity;
         public bool albumRotate { get => UI.albumRotate; set { UI.albumRotate = value; OnPropertyChanged(); } }
-        public bool albumRound { get => UI.albumRound; set { UI.albumRound = value; OnPropertyChanged(); } }
+        public bool albumRound { get => UI.albumRound; set { UI.albumRound = value; OnPropertyChanged(); OnPropertyChanged(nameof(albumRotate)); } }
         public int albumBorderLength { get => UI.albumBorderLength; set { UI.albumBorderLength = value; OnPropertyChanged(); } }
         public bool expandedUseAcrylic { get => UI.expandedUseAcrylic; set { UI.expandedUseAcrylic = value; OnPropertyChanged(); } }
         public bool playbarBackgroundBreath { get => UI.playbarBackgroundBreath; set { UI.playbarBackgroundBreath = value; OnPropertyChanged(); } }
@@ -104,6 +159,8 @@ namespace HyPlayer
         public bool CompactPlayerPageBlurStatus { get => UI.CompactPlayerPageBlurStatus; set { UI.CompactPlayerPageBlurStatus = value; OnPropertyChanged(); } }
         public bool notClearMode { get => UI.notClearMode; set { UI.notClearMode = value; OnPropertyChanged(); } }
         public bool AutoHidePlaybar { get => UI.AutoHidePlaybar; set { UI.AutoHidePlaybar = value; OnPropertyChanged(); } }
+        public ExpandedControlStyle expandedControlStyle { get => UI.expandedControlStyle; set { UI.expandedControlStyle = value; OnPropertyChanged(); } }
+        public bool expandedAutoCollapsePlaybar { get => UI.expandedAutoCollapsePlaybar; set { UI.expandedAutoCollapsePlaybar = value; OnPropertyChanged(); } }
         public int AutoHidePlaybarTime { get => UI.AutoHidePlaybarTime; set { UI.AutoHidePlaybarTime = value; OnPropertyChanged(); } }
         public bool playBarMargin { get => UI.playBarMargin; set { UI.playBarMargin = value; OnPropertyChanged(); } }
         public bool uiSound { get => UI.uiSound; set { UI.uiSound = value; OnPropertyChanged(); } }
@@ -174,6 +231,8 @@ namespace HyPlayer
         public Color? karaokLyricFocusingColor { get => Lyric.karaokLyricFocusingColor; set { Lyric.karaokLyricFocusingColor = value; OnPropertyChanged(); } }
 #nullable restore
         public bool IsolationFullThrottle { get => Lyric.IsolationFullThrottle; set { Lyric.IsolationFullThrottle = value; OnPropertyChanged(); } }
+        public bool autoHideLyricPanel { get => Lyric.autoHideLyricPanel; set { Lyric.autoHideLyricPanel = value; OnPropertyChanged(); } }
+        public double autoHideLyricPanelLines { get => Lyric.autoHideLyricPanelLines; set { Lyric.autoHideLyricPanelLines = value; OnPropertyChanged(); } }
         public double IsolationFPS { get => Lyric.IsolationFPS; set { Lyric.IsolationFPS = value; OnPropertyChanged(); } }
         public float IsolationScale { get => Lyric.IsolationScale; set { Lyric.IsolationScale = value; OnPropertyChanged(); } }
         public bool IsolationLightWave { get => Lyric.IsolationLightWave; set { Lyric.IsolationLightWave = value; OnPropertyChanged(); } }
@@ -224,8 +283,22 @@ namespace HyPlayer
         {
             get
             {
-                var stored = GetSettings<string>(nameof(downloadDir), null);
-                if (stored != null) return stored;
+                return GetSettings<string>(nameof(downloadDir), null) ?? DefaultDownloadDir;
+            }
+            set
+            {
+                SettingsBase.SetSettings(nameof(downloadDir), value);
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(downloadDirIsCustom));
+                OnPropertyChanged(nameof(searchingDir));
+                OnPropertyChanged(nameof(searchingDirIsCustom));
+            }
+        }
+
+        public static string DefaultDownloadDir
+        {
+            get
+            {
                 if (_defaultDownloadDir != null) return _defaultDownloadDir;
                 try
                 {
@@ -238,12 +311,9 @@ namespace HyPlayer
                     return ApplicationData.Current.LocalCacheFolder.Path;
                 }
             }
-            set
-            {
-                SettingsBase.SetSettings(nameof(downloadDir), value);
-                OnPropertyChanged();
-            }
         }
+
+        public bool downloadDirIsCustom => GetSettings<string>(nameof(downloadDir), null) is { } stored && !StorageMaintenance.IsSamePath(stored, DefaultDownloadDir);
 
         public string downloadFileName
         {
@@ -282,8 +352,11 @@ namespace HyPlayer
             {
                 SettingsBase.SetSettings(nameof(searchingDir), value);
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(searchingDirIsCustom));
             }
         }
+
+        public bool searchingDirIsCustom => GetSettings<string>(nameof(searchingDir), null) is { } stored && !StorageMaintenance.IsSamePath(stored, downloadDir);
 
         public int maxDownloadCount
         {

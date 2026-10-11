@@ -111,8 +111,48 @@ public partial class PlayBarViewModel : ObservableRecipient
     /// </summary>
     public Windows.Storage.Streams.InMemoryRandomAccessStream? CoverStream => _state.CoverStream;
 
-    public string SongName => NowPlayingItem?.Name ?? string.Empty;
-    public string ArtistName => NowPlayingItem?.ArtistString ?? string.Empty;
+    public string SongName => IsLoadingTrack && PendingTitle is not null ? PendingTitle : NowPlayingItem?.Name ?? string.Empty;
+    public string ArtistName => IsLoadingTrack ? "正在加载…" : NowPlayingItem?.ArtistString ?? string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SongName), nameof(ArtistName))]
+    public partial bool IsLoadingTrack { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SongName))]
+    public partial string? PendingTitle { get; set; }
+
+    private int _loadingDepth;
+    private int _loadingVersion;
+
+    private void OnPlaybackLoading(PlaybackLoadingMessage message)
+    {
+        if (message.IsLoading)
+        {
+            _loadingDepth++;
+            if (message.Title is not null) PendingTitle = message.Title;
+            if (!IsLoadingTrack)
+            {
+                IsLoadingTrack = true;
+                var version = ++_loadingVersion;
+                var title = PendingTitle;
+                _ = NotifyIfSlowAsync(version, title);
+            }
+            return;
+        }
+        _loadingDepth = Math.Max(0, _loadingDepth - 1);
+        if (_loadingDepth > 0) return;
+        _loadingVersion++;
+        IsLoadingTrack = false;
+        PendingTitle = null;
+    }
+
+    private async System.Threading.Tasks.Task NotifyIfSlowAsync(int version, string? title)
+    {
+        await System.Threading.Tasks.Task.Delay(5000);
+        if (version != _loadingVersion || !IsLoadingTrack) return;
+        _notification.ShowMessage("正在加载", $"{title ?? "歌曲"} 加载较慢，请稍候");
+    }
     public string AlbumName => NowPlayingItem?.AlbumString ?? string.Empty;
     public string QualityTagText => NowPlayingItem?.GetQualityTagText(_setting.audioRate) ?? "无歌曲";
     public string TotalTimeText => FormatTime(Duration != TimeSpan.Zero ? Duration : TimeSpan.FromMilliseconds(NowPlayingItem?.LengthInMilliseconds ?? 0));
@@ -209,6 +249,11 @@ public partial class PlayBarViewModel : ObservableRecipient
     {
         var messenger = Messenger;
 
+        messenger.Register<PlaybackLoadingMessage>(this, (r, m) =>
+        {
+            var vm = (PlayBarViewModel)r;
+            vm.RunOnUIThread(() => vm.OnPlaybackLoading(m));
+        });
         messenger.Register<TrackChangedMessage>(this, (r, m) =>
         {
             var vm = (PlayBarViewModel)r;

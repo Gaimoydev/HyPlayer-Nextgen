@@ -253,13 +253,21 @@ namespace HyPlayer.ViewModels
 
         public async Task LoadAlbumImage()
         {
-            using var result = await _httpClient.GetAsync(new Uri(PlayList.Cover + "?param=" + StaticSource.PICSIZE_SONGLIST_DETAIL_COVER));
-            if (result.IsSuccessStatusCode)
+            if (!Uri.TryCreate(PlayList.Cover, UriKind.Absolute, out var cover) ||
+                cover.Scheme != Uri.UriSchemeHttp && cover.Scheme != Uri.UriSchemeHttps) return;
+            try
             {
-                using var stream = await result.Content.ReadAsStreamAsync();
-                using var inputStream = stream.AsRandomAccessStream();
-                Color imageMainColor = await ColorExtractor.ExtractColorFromStream(inputStream);
-                AlbumColor = imageMainColor;
+                using var result = await _httpClient.GetAsync(new Uri(PlayList.Cover + "?param=" + StaticSource.PICSIZE_SONGLIST_DETAIL_COVER));
+                if (result.IsSuccessStatusCode)
+                {
+                    using var stream = await result.Content.ReadAsStreamAsync();
+                    using var inputStream = stream.AsRandomAccessStream();
+                    Color imageMainColor = await ColorExtractor.ExtractColorFromStream(inputStream);
+                    AlbumColor = imageMainColor;
+                }
+            }
+            catch
+            {
             }
         }
 

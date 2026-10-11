@@ -155,8 +155,14 @@ public static class SimpleCacher
         var files = await cacheFolder.GetFoldersAsync();
         foreach (var file in files)
         {
+            if (!StorageMaintenance.IsCacheFolderName(file.Name)) continue;
             await file.DeleteAsync();
         }
+    }
+
+    public static void Reset()
+    {
+        cacheFolder = null;
     }
 }
 

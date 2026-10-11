@@ -6,6 +6,7 @@ using HyPlayer.Classes;
 using HyPlayer.Controls.Primitives;
 using HyPlayer.NeteaseApi;
 using HyPlayer.Services.Abstractions;
+using HyPlayer.Services.Playback.Models;
 using Kawazu;
 using LiteFM;
 using Microsoft.Graphics.Canvas.Text;
@@ -54,6 +55,8 @@ public sealed partial class Settings : Page
     private readonly INotificationService _notification = Ioc.Default.GetRequiredService<INotificationService>();
     private readonly INavigationService _navigation = Ioc.Default.GetRequiredService<INavigationService>();
 
+    public ModelManager Models { get; } = Ioc.Default.GetRequiredService<ModelManager>();
+
     private bool isbyprogram;
     private int _elapse = 10;
 
@@ -75,6 +78,7 @@ public sealed partial class Settings : Page
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
+        _ = Models.RefreshAsync();
 
         RomajiStatus.Header = (Ioc.Default.GetRequiredService<IUIStateService>().KawazuConv == null ? "请下载Kawazu资源文件" : "可以转换");
         ButtonDownloadRomaji.Visibility = Ioc.Default.GetRequiredService<IUIStateService>().KawazuConv == null ? Visibility.Visible : Visibility.Collapsed;
@@ -116,10 +120,12 @@ public sealed partial class Settings : Page
     private void Pivot_OnPivotItemLoaded(Pivot sender, PivotItemEventArgs args)
     {
         var item = args.Item;
-        _ = Dispatcher.RunIdleAsync(_ =>
+        _ = Dispatcher.RunIdleAsync(_ignored =>
         {
             foreach (var expander in item.FindDescendants().OfType<SettingsExpander>())
             {
+                if (ReferenceEquals(expander, StoragePathSettings)) _ = RefreshCacheUsageAsync();
+                if (ReferenceEquals(expander, MemorySettings)) RefreshMemoryUsage();
                 expander.Expanded -= SettingsExpander_OnExpanded;
                 expander.Expanded += SettingsExpander_OnExpanded;
                 UseNonVirtualizingLayout(expander);
@@ -263,11 +269,10 @@ public sealed partial class Settings : Page
         };
         folderPicker.FileTypeFilter.Add("*");
         var folder = await folderPicker.PickSingleFolderAsync();
-        if (folder != null)
-        {
-            StorageApplicationPermissions.FutureAccessList.AddOrReplace("downloadFolder", folder);
-            _setting.downloadDir = folder.Path;
-        }
+        if (folder == null) return;
+        if (!await OfferPathMigrationAsync("下载的歌曲", _setting.downloadDir, folder, StorageContentKind.Music)) return;
+        StorageApplicationPermissions.FutureAccessList.AddOrReplace("downloadFolder", folder);
+        _setting.downloadDir = folder.Path;
     }
 
     private async void ButtonSearchingSelect_OnClick(object sender, RoutedEventArgs e)
@@ -278,11 +283,10 @@ public sealed partial class Settings : Page
         };
         folderPicker.FileTypeFilter.Add("*");
         var folder = await folderPicker.PickSingleFolderAsync();
-        if (folder != null)
-        {
-            StorageApplicationPermissions.FutureAccessList.AddOrReplace("searchingFolder", folder);
-            _setting.searchingDir = folder.Path;
-        }
+        if (folder == null) return;
+        if (!await OfferPathMigrationAsync("本地音乐", _setting.searchingDir, folder, StorageContentKind.Music)) return;
+        StorageApplicationPermissions.FutureAccessList.AddOrReplace("searchingFolder", folder);
+        _setting.searchingDir = folder.Path;
     }
 
 
@@ -330,6 +334,108 @@ public sealed partial class Settings : Page
     }
 
 
+    private static ModelEntry? ModelOf(object sender) => sender is FrameworkElement element ? element.Tag as ModelEntry ?? element.DataContext as ModelEntry : null;
+
+    private async void ModelDownload_Click(object sender, RoutedEventArgs e)
+    {
+        if (ModelOf(sender) is { } entry) await Models.DownloadAsync(entry);
+    }
+
+    private void ModelCancel_Click(object sender, RoutedEventArgs e)
+    {
+        if (ModelOf(sender) is { } entry) Models.CancelDownload(entry);
+    }
+
+    private async void ModelDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (ModelOf(sender) is { } entry) await Models.DeleteAsync(entry);
+    }
+
+    private async void ModelImport_Click(object sender, RoutedEventArgs e)
+    {
+        if (ModelOf(sender) is not { } entry) return;
+        var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.Downloads };
+        picker.FileTypeFilter.Add(".onnx");
+        var file = await picker.PickSingleFileAsync();
+        if (file is null) return;
+        var error = await Models.ImportAsync(entry, file);
+        if (error is not null) _notification.ShowMessage("导入模型失败", error);
+    }
+
+    private async void ModelFolderSelect_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FolderPicker { SuggestedStartLocation = PickerLocationId.Downloads };
+        picker.FileTypeFilter.Add("*");
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder is not null) await ChangeModelFolderAsync(folder);
+    }
+
+    private async void GoToStoragePathSettings_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var item in SettingsPivot.Items)
+        {
+            if (item is not PivotItem { Header: "存储设置" } storage) continue;
+            SettingsPivot.SelectedItem = storage;
+            break;
+        }
+        for (var attempt = 0; attempt < 20 && StoragePathSettings is null; attempt++)
+            await Task.Delay(50);
+        if (StoragePathSettings is null) return;
+        await Task.Delay(100);
+        StoragePathSettings.IsExpanded = true;
+        StoragePathSettings.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = true, VerticalAlignmentRatio = 0 });
+    }
+
+    private async void ModelFolderReset_Click(object sender, RoutedEventArgs e)
+    {
+        await ChangeModelFolderAsync(null);
+    }
+
+    private async Task ChangeModelFolderAsync(StorageFolder? target)
+    {
+        StorageFolder current;
+        StorageFolder destination;
+        try
+        {
+            current = await Models.GetFolderAsync();
+            destination = target ?? await ModelManager.GetDefaultFolderAsync();
+        }
+        catch (Exception ex)
+        {
+            _notification.ShowMessage("无法更改模型位置", ex.Message);
+            return;
+        }
+        if (string.Equals(current.Path, destination.Path, StringComparison.OrdinalIgnoreCase))
+        {
+            await Models.SetFolderAsync(target);
+            return;
+        }
+
+        var files = await ModelManager.GetModelFilesAsync(current);
+        if (files.Count > 0)
+        {
+            ulong totalBytes = 0;
+            foreach (var file in files) totalBytes += (await file.GetBasicPropertiesAsync()).Size;
+            var (proceed, migrate, deleteOriginal) = await AskMigrationAsync("分析模型", files.Count, totalBytes, current.Path, destination.Path);
+            if (!proceed) return;
+            if (migrate)
+            {
+                _notification.ShowMessage("正在迁移分析模型", "请稍候，迁移完成前不要关闭应用");
+                try
+                {
+                    await Models.MigrateAsync(current, destination, deleteOriginal);
+                }
+                catch (Exception ex)
+                {
+                    _notification.ShowMessage("迁移失败", $"模型位置未更改：{ex.Message}");
+                    return;
+                }
+                _notification.ShowMessage("迁移完成", deleteOriginal ? "已迁移并删除原位置的模型文件" : "已迁移，原位置的模型文件已保留");
+            }
+        }
+        await Models.SetFolderAsync(target);
+    }
+
     private async void ButtonCacheSelect_OnClick(object sender, RoutedEventArgs e)
     {
         var folderPicker = new FolderPicker
@@ -338,10 +444,135 @@ public sealed partial class Settings : Page
         };
         folderPicker.FileTypeFilter.Add("*");
         var folder = await folderPicker.PickSingleFolderAsync();
-        if (folder != null)
+        if (folder == null) return;
+        if (!await OfferPathMigrationAsync("缓存", _setting.cacheDir, folder, StorageContentKind.Cache)) return;
+        StorageApplicationPermissions.FutureAccessList.AddOrReplace("cacheFolder", folder);
+        _setting.cacheDir = folder.Path;
+        SimpleCacher.Reset();
+        _ = RefreshCacheUsageAsync();
+    }
+
+    private async void ButtonDownloadReset_OnClick(object sender, RoutedEventArgs e)
+    {
+        StorageFolder target;
+        try
         {
-            StorageApplicationPermissions.FutureAccessList.AddOrReplace("cacheFolder", folder);
-            _setting.cacheDir = folder.Path;
+            target = await StorageFolder.GetFolderFromPathAsync(Setting.DefaultDownloadDir);
+        }
+        catch (Exception ex)
+        {
+            _notification.ShowMessage("无法恢复默认下载路径", ex.Message);
+            return;
+        }
+        if (!await OfferPathMigrationAsync("下载的歌曲", _setting.downloadDir, target, StorageContentKind.Music)) return;
+        _setting.downloadDir = null;
+    }
+
+    private async void ButtonSearchingReset_OnClick(object sender, RoutedEventArgs e)
+    {
+        StorageFolder target;
+        try
+        {
+            target = await StorageFolder.GetFolderFromPathAsync(_setting.downloadDir);
+        }
+        catch (Exception ex)
+        {
+            _notification.ShowMessage("无法恢复默认搜索路径", ex.Message);
+            return;
+        }
+        if (!await OfferPathMigrationAsync("本地音乐", _setting.searchingDir, target, StorageContentKind.Music)) return;
+        _setting.searchingDir = null;
+    }
+
+    private async void ButtonCacheReset_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (!await OfferPathMigrationAsync("缓存", _setting.cacheDir, ApplicationData.Current.LocalCacheFolder, StorageContentKind.Cache)) return;
+        _setting.cacheDir = null;
+        SimpleCacher.Reset();
+        _ = RefreshCacheUsageAsync();
+    }
+
+    private async Task<(bool Proceed, bool Migrate, bool DeleteOriginal)> AskMigrationAsync(string what, int count, ulong totalBytes, string from, string to)
+    {
+        var migrateDialog = new ContentDialog
+        {
+            Title = $"迁移{what}",
+            Content = $"原位置有 {count} 个{what}文件（共 {StorageMaintenance.FormatSize(totalBytes)}），是否迁移到新位置？\n{from}\n→ {to}",
+            PrimaryButtonText = "迁移",
+            SecondaryButtonText = "不迁移",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        var choice = await migrateDialog.ShowAsync();
+        if (choice == ContentDialogResult.None) return (false, false, false);
+        if (choice == ContentDialogResult.Secondary) return (true, false, false);
+        var deleteDialog = new ContentDialog
+        {
+            Title = "删除原位置的文件",
+            Content = $"迁移完成后，是否删除原位置的{what}文件？",
+            PrimaryButtonText = "删除",
+            CloseButtonText = "保留",
+            DefaultButton = ContentDialogButton.Close
+        };
+        return (true, true, await deleteDialog.ShowAsync() == ContentDialogResult.Primary);
+    }
+
+    private async Task<bool> OfferPathMigrationAsync(string what, string oldPath, StorageFolder destination, StorageContentKind kind)
+    {
+        if (string.IsNullOrEmpty(oldPath) || StorageMaintenance.IsSamePath(oldPath, destination.Path)) return true;
+        StorageFolder source;
+        List<StorageItemInfo> items;
+        try
+        {
+            source = await StorageFolder.GetFolderFromPathAsync(oldPath);
+            items = await StorageMaintenance.CollectAsync(source, kind, destination.Path);
+        }
+        catch
+        {
+            return true;
+        }
+        if (items.Count == 0) return true;
+
+        ulong totalBytes = 0;
+        foreach (var item in items) totalBytes += item.Size;
+        var (proceed, migrate, deleteOriginal) = await AskMigrationAsync(what, items.Count, totalBytes, source.Path, destination.Path);
+        if (!proceed) return false;
+        if (!migrate) return true;
+
+        _notification.ShowMessage($"正在迁移{what}", $"共 {items.Count} 个文件，迁移完成前不要关闭应用");
+        var result = await StorageMaintenance.MigrateAsync(source, destination, items, deleteOriginal);
+        var detail = $"已迁移 {result.Copied} 个文件";
+        if (result.Skipped > 0) detail += $"，{result.Skipped} 个因新位置已有同名文件而跳过";
+        if (result.Failed > 0) detail += $"，{result.Failed} 个失败";
+        if (deleteOriginal) detail += "，原位置的文件已删除";
+        _notification.ShowMessage(result.Failed > 0 ? $"{what}迁移部分完成" : $"{what}迁移完成", detail);
+        return true;
+    }
+
+    private void RefreshMemoryUsage(string? prefix = null)
+    {
+        var usage = $"当前占用 {StorageMaintenance.FormatSize(MemoryGovernor.WorkingSetBytes)}";
+        MemoryNowCard.Description = prefix is null ? usage : $"{prefix}，{usage}";
+    }
+
+    private async void ReclaimMemory_Click(object sender, RoutedEventArgs e)
+    {
+        var button = (Button)sender;
+        button.IsEnabled = false;
+        var freed = await MemoryGovernor.ReclaimAsync();
+        RefreshMemoryUsage($"已释放 {StorageMaintenance.FormatSize(freed)}");
+        button.IsEnabled = true;
+    }
+
+    private async Task RefreshCacheUsageAsync()
+    {
+        try
+        {
+            var used = await StorageMaintenance.GetCacheUsageAsync();
+            CacheLimitCard.Description = $"当前已使用 {StorageMaintenance.FormatSize(used)}";
+        }
+        catch
+        {
         }
     }
     private void StackPanel_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
@@ -529,6 +760,7 @@ public sealed partial class Settings : Page
                 await file.DeleteAsync();
             }
         }
+        await RefreshCacheUsageAsync();
     }
 
     private void LogoffLastFMAccount_Click(object sender, RoutedEventArgs e)

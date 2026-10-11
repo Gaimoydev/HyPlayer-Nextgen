@@ -168,6 +168,7 @@ public sealed partial class SongsList : UserControl
                 Songs?.CollectionChanged -= Songs_CollectionChanged;
                 SetValue(SongsProperty, value);
                 Songs?.CollectionChanged += Songs_CollectionChanged;
+                ReloadVisibleSongs();
             }
             catch
             {
@@ -245,11 +246,31 @@ public sealed partial class SongsList : UserControl
         }
     }
 
+    private void ReloadVisibleSongs()
+    {
+        _pendingSongs.Clear();
+        VisibleSongs.Clear();
+        if (Songs is not { Count: > 0 } songs) return;
+        _pendingSongs.AddRange(songs);
+        if (_pendingSongsFlushScheduled) return;
+        _pendingSongsFlushScheduled = true;
+        _ = Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, FlushPendingSongs);
+    }
+
     private void FlushPendingSongs()
     {
         _pendingSongsFlushScheduled = false;
         if (_pendingSongs.Count == 0) return;
-        VisibleSongs.AddRange(_pendingSongs);
+        if (VisibleSongs.Count == 0)
+        {
+            SongContainer.ItemsSource = null;
+            VisibleSongs.AddRange(_pendingSongs);
+            SongContainer.ItemsSource = VisibleSongs;
+        }
+        else
+        {
+            foreach (var song in _pendingSongs) VisibleSongs.Add(song);
+        }
         _pendingSongs.Clear();
     }
 
@@ -436,19 +457,33 @@ public sealed partial class SongsList : UserControl
         MultiSelect = false;
     }
 
+    private NCSong? _queuedClick;
+
     private async void SongContainer_ItemClick(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is not NCSong ncSong || IsAddingSongToPlaylist) return;
+        if (e.ClickedItem is not NCSong ncSong) return;
         if (SongContainer.SelectionMode == ListViewSelectionMode.Multiple) return;
-        bool shiftSong = ncSong.SongId == _state.NowPlayingItem?.Id;
-
         if (!ncSong.IsAvailable)
         {
             _notification.ShowMessage("歌曲不可用", $"歌曲 {ncSong.SongName} 当前不可用");
             return;
         }
+        SongContainer.SelectedItem = ncSong;
+        if (IsAddingSongToPlaylist)
+        {
+            WeakReferenceMessenger.Default.Send(new PlaybackLoadingMessage(true, ncSong.SongName, ncSong.ArtistString));
+            if (_queuedClick is not null) WeakReferenceMessenger.Default.Send(new PlaybackLoadingMessage(false));
+            _queuedClick = ncSong;
+            return;
+        }
+        await PlayClickedSongAsync(ncSong);
+    }
 
+    private async Task PlayClickedSongAsync(NCSong ncSong)
+    {
+        bool shiftSong = ncSong.SongId == _state.NowPlayingItem?.Id;
         IsAddingSongToPlaylist = true;
+        WeakReferenceMessenger.Default.Send(new PlaybackLoadingMessage(true, ncSong.SongName, ncSong.ArtistString));
         try
         {
             if (!string.IsNullOrEmpty(ListSource) && ListSource != "Content" && Songs.Count == VisibleSongs.Count)
@@ -497,9 +532,20 @@ public sealed partial class SongsList : UserControl
                 }
             }
         }
+        catch (Exception ex)
+        {
+            _notification.ShowMessage("播放失败", $"{ncSong.SongName}: {ex.Message}");
+        }
         finally
         {
             IsAddingSongToPlaylist = false;
+            WeakReferenceMessenger.Default.Send(new PlaybackLoadingMessage(false));
+        }
+        if (_queuedClick is { } queued)
+        {
+            _queuedClick = null;
+            WeakReferenceMessenger.Default.Send(new PlaybackLoadingMessage(false));
+            if (!ReferenceEquals(queued, ncSong)) await PlayClickedSongAsync(queued);
         }
     }
 
