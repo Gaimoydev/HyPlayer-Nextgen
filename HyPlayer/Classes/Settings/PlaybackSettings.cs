@@ -252,6 +252,24 @@ namespace HyPlayer.Classes.Settings
             set => SettingsBase.SetSettings(nameof(cacheLimitGB), value);
         }
 
+        public bool promptWeakNetwork
+        {
+            get => GetSettings(nameof(promptWeakNetwork), true);
+            set => SettingsBase.SetSettings(nameof(promptWeakNetwork), value);
+        }
+
+        public bool promptPowerSaving
+        {
+            get => GetSettings(nameof(promptPowerSaving), true);
+            set => SettingsBase.SetSettings(nameof(promptPowerSaving), value);
+        }
+
+        public bool speedChangesPitch
+        {
+            get => GetSettings(nameof(speedChangesPitch), false);
+            set => SettingsBase.SetSettings(nameof(speedChangesPitch), value);
+        }
+
         public bool cacheLimitCustom
         {
             get => GetSettings(nameof(cacheLimitCustom), false);

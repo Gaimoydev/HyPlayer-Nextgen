@@ -23,6 +23,8 @@ public interface IPlaybackControlService
     /// <summary>跳转到指定位置</summary>
     Task SeekAsync(TimeSpan target);
 
+    void SaveResumePoint();
+
     /// <summary>播放</summary>
     void Play();
 
