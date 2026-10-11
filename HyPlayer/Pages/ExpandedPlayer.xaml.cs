@@ -822,7 +822,7 @@ public sealed partial class ExpandedPlayer : Page
                 (Brush)new BooleanToWindowBrushesConverter().Convert(
                     _settings.acrylicBackgroundStatus, null, null,
                     null);
-        NowPlaybackSpeed = "x" + GetCurrentPlaybackSpeed();
+        NowPlaybackSpeed = FormatPlaybackSpeed(_state.PlaybackSpeed);
         if (_settings.pureLyricFocusingColor is not null)
         {
             _pureAccentBrushCache ??= _uiState.BrushManagement.AccentBrush;
@@ -959,7 +959,7 @@ public sealed partial class ExpandedPlayer : Page
             }
 
             _needsRedesign = true;
-            NowPlaybackSpeed = "x" + GetCurrentPlaybackSpeed();
+            NowPlaybackSpeed = FormatPlaybackSpeed(_state.PlaybackSpeed);
         });
     }
 
@@ -1378,46 +1378,34 @@ public sealed partial class ExpandedPlayer : Page
         }
         return finalResult;
     }
-    private double GetCurrentPlaybackSpeed()
+    private static string FormatPlaybackSpeed(double speed) =>
+        "x" + speed.ToString("0.0#", System.Globalization.CultureInfo.InvariantCulture);
+
+    private void ApplyPlaybackSpeed(double speed)
     {
+        speed = Math.Round(Math.Clamp(speed, 0.5, 2.0), 1);
+        _state.PlaybackSpeed = speed;
         try
         {
-            var playbackSource = _state.NowPlayingItem?.PlayItem?.AudioGraphPlaybackSource;
-            return playbackSource is null ? 1 : _player.GetPlaybackSourceSpeed(playbackSource);
+            if (_state.NowPlayingItem?.PlayItem?.AudioGraphPlaybackSource is { } playbackSource)
+                _player.SetUserPlaybackSpeed(speed, playbackSource, !_settings.speedChangesPitch);
         }
         catch
         {
-            return 1;
         }
+        NowPlaybackSpeed = FormatPlaybackSpeed(speed);
     }
 
-    private void BtnSpeedMinusClick(object sender, RoutedEventArgs e)
-    {
-        if (_state.NowPlayingItem == null) return;
-        var playbackSource = _state.NowPlayingItem.PlayItem?.AudioGraphPlaybackSource;
-        if (playbackSource is null) return;
-        var currentSpeed = GetCurrentPlaybackSpeed();
-        var newSpeed = Math.Max(0.5, currentSpeed - 0.1);
-        _player.SetPlaybackSourceSpeed(newSpeed, playbackSource);
-        NowPlaybackSpeed = "x" + newSpeed;
-    }
+    private void BtnSpeedMinusClick(object sender, RoutedEventArgs e) => ApplyPlaybackSpeed(_state.PlaybackSpeed - 0.1);
 
-    private void BtnSpeedPlusClick(object sender, RoutedEventArgs e)
-    {
-        if (_state.NowPlayingItem == null) return;
-        var playbackSource = _state.NowPlayingItem.PlayItem?.AudioGraphPlaybackSource;
-        if (playbackSource is null) return;
-        var currentSpeed = GetCurrentPlaybackSpeed();
-        var newSpeed = Math.Min(2.0, currentSpeed + 0.1);
-        _player.SetPlaybackSourceSpeed(newSpeed, playbackSource);
-        NowPlaybackSpeed = "x" + newSpeed;
-    }
+    private void BtnSpeedPlusClick(object sender, RoutedEventArgs e) => ApplyPlaybackSpeed(_state.PlaybackSpeed + 0.1);
 
-    private void TbNowSpeed_OnTapped(object sender, RoutedEventArgs routedEventArgs)
+    private void TbNowSpeed_OnTapped(object sender, RoutedEventArgs routedEventArgs) => ApplyPlaybackSpeed(1);
+
+    private void SpeedChangesPitch_Click(object sender, RoutedEventArgs e)
     {
-        var playbackSource = _state.NowPlayingItem.PlayItem?.AudioGraphPlaybackSource;
-        _player.SetPlaybackSourceSpeed(1, playbackSource);
-        NowPlaybackSpeed = "x1";
+        if (sender is ToggleMenuFlyoutItem item) _settings.speedChangesPitch = item.IsChecked;
+        ApplyPlaybackSpeed(_state.PlaybackSpeed);
     }
 
     private void BtnCopyLyricClicked(object sender, RoutedEventArgs e)

@@ -557,6 +557,10 @@
                                 </ControlTemplate>
                             </MenuFlyoutItem.Template>
                         </MenuFlyoutItem>
+                        <ToggleMenuFlyoutItem
+                            Click="SpeedChangesPitch_Click"
+                            IsChecked="{x:Bind _settings.speedChangesPitch, Mode=OneWay}"
+                            Text="变调" />
                         <MenuFlyoutSeparator />
                         <ToggleMenuFlyoutItem
                             x:Name="ABRepeatState"

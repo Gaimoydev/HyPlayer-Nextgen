@@ -14,6 +14,7 @@ namespace HyPlayer.UWP.Chopin.Dsp
         private static delegate* unmanaged[Cdecl]<nint, float, int> _outputSeekLength;
         private static delegate* unmanaged[Cdecl]<nint, float*, int, void> _outputSeek;
         private static delegate* unmanaged[Cdecl]<nint, float*, int, float*, int, void> _process;
+        private static delegate* unmanaged[Cdecl]<nint, float, void> _setTranspose;
 
         private nint _handle;
         private readonly int _channels;
@@ -50,6 +51,8 @@ namespace HyPlayer.UWP.Chopin.Dsp
                     _outputSeekLength = (delegate* unmanaged[Cdecl]<nint, float, int>)NativeLibrary.GetExport(library, "hyp_stretch_output_seek_length");
                     _outputSeek = (delegate* unmanaged[Cdecl]<nint, float*, int, void>)NativeLibrary.GetExport(library, "hyp_stretch_output_seek");
                     _process = (delegate* unmanaged[Cdecl]<nint, float*, int, float*, int, void>)NativeLibrary.GetExport(library, "hyp_stretch_process");
+                    if (NativeLibrary.TryGetExport(library, "hyp_stretch_set_transpose", out var transpose))
+                        _setTranspose = (delegate* unmanaged[Cdecl]<nint, float, void>)transpose;
                     _create = (delegate* unmanaged[Cdecl]<int, float, int, nint>)create;
                     return;
                 }
@@ -80,6 +83,20 @@ namespace HyPlayer.UWP.Chopin.Dsp
         }
 
         public void Reset() => _reset(_handle);
+
+        public static bool CanTranspose
+        {
+            get
+            {
+                EnsureLoaded();
+                return _create != null && _setTranspose != null;
+            }
+        }
+
+        public void SetTranspose(double factor)
+        {
+            if (_setTranspose != null) _setTranspose(_handle, (float)factor);
+        }
 
         public void Dispose()
         {
