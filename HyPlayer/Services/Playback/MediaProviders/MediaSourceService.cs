@@ -47,4 +47,13 @@ public sealed class MediaSourceService : IMediaSourceService
 
         return provider.CreateAsync(item, ct);
     }
+
+    public Task PrefetchAsync(HyPlayItem item, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(item.ProviderId)
+            || !_providers.TryGetValue(item.ProviderId, out var provider)
+            || provider is not IMediaPrefetchProvider prefetcher)
+            return Task.CompletedTask;
+        return prefetcher.PrefetchAsync(item, ct);
+    }
 }

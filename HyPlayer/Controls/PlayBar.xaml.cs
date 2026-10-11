@@ -82,6 +82,23 @@ DoubleAnimation verticalAnimation;
         _uiState.BarPlayBar = this;
         InitializeComponent();
         _player.OnGlobalPlaybackStatusChanged += Player_OnGlobalPlaybackStatusChanged;
+        _state.PropertyChanged += State_PropertyChanged;
+        Loaded += (_, _) => RefreshTransitionEffect();
+    }
+
+    private HyPlayer.Controls.Primitives.PlayBarTransitionEffect _transitionEffect;
+
+    private void State_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(PlaybackStateService.IsTransitioning)) return;
+        RunOnUIThread(RefreshTransitionEffect);
+    }
+
+    private void RefreshTransitionEffect()
+    {
+        if (!IsLoaded) return;
+        _transitionEffect ??= new HyPlayer.Controls.Primitives.PlayBarTransitionEffect(SliderProgress, SongInfoTag, TbSongTag, TbTransitionTag, TransitionTagGlowHost);
+        _transitionEffect.SetActive(_state.IsTransitioning);
     }
 
     private void Player_OnGlobalPlaybackStatusChanged(PlaybackStatus status)
@@ -322,6 +339,11 @@ DoubleAnimation verticalAnimation;
     {
         (_uiState.PageMain as MainPage).IsExpandedPlayerInitialized = false;
         if (_uiState.PageExpandedPlayer == null) return;
+        if (_uiState.PageMain is MainPage mainPage)
+        {
+            mainPage.SetPlaybarSuppressed(false);
+            if (!_setting.AutoHidePlaybar) mainPage.RestorePlaybar();
+        }
         (_uiState.PageExpandedPlayer as ExpandedPlayer).StartCollapseAnimation();
         GridSongAdvancedOperation.Visibility = Visibility.Collapsed;
         GridSongInfo.Visibility = Visibility.Visible;
@@ -574,6 +596,26 @@ DoubleAnimation verticalAnimation;
     {
         FlyoutBtnPlayList.ContextFlyout?.ShowAt(BtnMore);
         ButtonPlayList_OnClick(sender, e);
+    }
+
+    internal double VolumeValue => SliderAudioRate.Value;
+
+    internal void TogglePlayback() => BtnPlayStateChange_OnClick(this, null);
+    internal void PlayPrevious() => BtnPreviousSong_OnClick(this, null);
+    internal void PlayNext() => BtnNextSong_OnClick(this, null);
+    internal void SwitchPlayMode() => BtnPlayRollType_OnClick(this, null);
+    internal void LikeCurrent() => BtnLike_OnClick(this, null);
+    internal void AddCurrentToSongList() => Btn_Sub_OnClick(this, null);
+    internal void DownloadCurrent() => Btn_Down_OnClick(this, null);
+    internal void OpenComments() => Btn_Comment_OnClick(this, null);
+    internal void ShareCurrent() => Btn_Share_OnClick(this, null);
+    internal void OpenDesktopLyrics() => ToggleButton_Click(this, null);
+    internal void SetVolumeValue(double value) => SliderAudioRate.Value = value;
+
+    internal void ShowPlaylistAt(FrameworkElement anchor)
+    {
+        ButtonPlayList.Flyout?.ShowAt(anchor);
+        ButtonPlayList_OnClick(this, null);
     }
 
     internal void OnEnteringForeground()

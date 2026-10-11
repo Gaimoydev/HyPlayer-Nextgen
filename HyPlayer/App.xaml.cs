@@ -54,6 +54,7 @@ public sealed partial class App : Application
     public App()
     {
         InitializeComponent();
+        System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
         InitializeServices();
         InitializeCommonServices();
         HistoryManagement.InitializeHistoryTrack();
@@ -130,6 +131,11 @@ public sealed partial class App : Application
         serviceCollection.AddSingleton<IMediaSourceProvider, CachedNeteaseProvider>();      // nca — 网易云在线 + 缓存
         serviceCollection.AddSingleton<IMediaSourceProvider, NeteaseStreamingProvider>();   // nst — 网易云纯流式
         serviceCollection.AddSingleton<IMediaSourceService, MediaSourceService>();
+        serviceCollection.AddSingleton<HyPlayer.Services.Playback.Models.ModelManager>();
+        serviceCollection.AddSingleton<HyPlayer.Services.Playback.Analysis.IBeatAnalyzer, HyPlayer.Services.Playback.Analysis.Models.BeatThisAnalyzer>();
+        serviceCollection.AddSingleton<HyPlayer.Services.Playback.Analysis.IKeyAnalyzer, HyPlayer.Services.Playback.Analysis.Models.SKeyAnalyzer>();
+        serviceCollection.AddSingleton<HyPlayer.Services.Playback.Analysis.IVocalAnalyzer, HyPlayer.Services.Playback.Analysis.Models.MdxVocalAnalyzer>();
+        serviceCollection.AddSingleton<HyPlayer.Services.Playback.Analysis.IAudioAnalysisService, HyPlayer.Services.Playback.Analysis.AudioAnalysisService>();
 
         // ── 播放核心：播放策略 ──
         serviceCollection.AddSingleton<IPlayStrategy, SequentialStrategy>();       // seq — 列表循环
@@ -140,8 +146,10 @@ public sealed partial class App : Application
 
         // ── 播放核心：曲目过渡策略 ──
         serviceCollection.AddSingleton<ITrackTransition, DirectTransition>();      // dir — 直接切歌
+        serviceCollection.AddSingleton<ITrackTransition, FadeTransition>();        // fde — 淡入淡出
         serviceCollection.AddSingleton<ITrackTransition, CrossFadeTransition>();   // xfd — 交叉淡入淡出
         serviceCollection.AddSingleton<ITrackTransition, GaplessTransition>();     // gap — 无缝衔接
+        serviceCollection.AddSingleton<ITrackTransition, AutoMixTransition>();     // mix — 自动混音
 
         // ── 播放核心：服务 ──
         serviceCollection.AddSingleton<IBackgroundTaskRunner, BackgroundTaskRunner>();
@@ -189,6 +197,7 @@ public sealed partial class App : Application
         try
         {
             await SimpleCacher.InitializeAsync();
+            StorageMaintenance.ScheduleTrim(TimeSpan.FromSeconds(30));
             var sf = await ApplicationData.Current.LocalFolder.TryGetItemAsync("Romaji");
             if (sf != null) Ioc.Default.GetRequiredService<IUIStateService>().KawazuConv = new KawazuConverter(sf.Path);
         }
@@ -216,6 +225,7 @@ public sealed partial class App : Application
         }
 
         uiState.IsInBackground = false;
+        MemoryGovernor.OnLeavingBackground();
 
         if (!Ioc.Default.GetRequiredService<Setting>().forceMemoryGarbage) return;
         Ioc.Default.GetRequiredService<INavigationService>().NavigateBack();
@@ -227,6 +237,7 @@ public sealed partial class App : Application
     {
         Ioc.Default.GetRequiredService<IUIStateService>().IsInBackground = true;
         MemoryReclaimer.CollectNow();
+        MemoryGovernor.OnEnteredBackground();
     }
 
     protected override void OnActivated(IActivatedEventArgs args)
@@ -362,6 +373,7 @@ public sealed partial class App : Application
 
             Window.Current.Content = rootFrame;
         }
+        MemoryGovernor.Attach(Window.Current);
 
         // 直接启动
         if (args is LaunchActivatedEventArgs)

@@ -50,6 +50,8 @@ public record LyricLoadedMessage(HyLyricInfo Info);
 /// </summary>
 public record QualityTagChangedMessage(string Tag);
 
+public record TransitionStateChangedMessage(bool IsTransitioning, HyPlayItem? Incoming);
+
 /// <summary>
 /// 歌词行索引变化（由 LyricService.Tick 触发）
 /// </summary>
@@ -69,6 +71,8 @@ public record PlaybackStateChangedMessage(bool IsPlaying);
 /// 播放位置更新（高频，由播放器定时器触发）
 /// </summary>
 public record PositionTickMessage(TimeSpan Position);
+
+public record PlaybackLoadingMessage(bool IsLoading, string? Title = null, string? Artist = null);
 
 public interface INotificationHandler<in TNotification>
 {

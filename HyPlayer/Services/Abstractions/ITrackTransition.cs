@@ -66,6 +66,10 @@ public interface ITrackTransition
     /// </summary>
     Task OnManualSkipAsync(TrackTransitionContext ctx);
 
+    void OnSeek(TrackTransitionContext ctx, TimeSpan target)
+    {
+    }
+
     /// <summary>
     /// 重置状态（清理预加载资源等）
     /// </summary>

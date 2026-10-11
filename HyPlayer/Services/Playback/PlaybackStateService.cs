@@ -18,6 +18,9 @@ public partial class PlaybackStateService : ObservableObject
     [ObservableProperty]
     public partial HyPlayItem? NowPlayingItem { get; set; }
 
+    [ObservableProperty]
+    public partial bool IsTransitioning { get; set; }
+
     /// <summary>当前播放位置</summary>
     [ObservableProperty]
     public partial TimeSpan Position { get; set; }

@@ -20,6 +20,11 @@ namespace HyPlayer.UWP.Chopin.Abstractions.Interfaces
         double GetPlaybackSourceSpeed(IPlaybackSource playbackSource);
         void SetOutputVolume(double volume);
         void SetPlaybackSourceOutputVolume(double volume, IPlaybackSource playbackSource);
+        double GetPlaybackSourceOutputVolume(IPlaybackSource playbackSource);
+        Task<bool> RampPlaybackSourceVolumeAsync(IPlaybackSource playbackSource, double target, TimeSpan duration, FadeCurve curve = FadeCurve.EqualPower);
+        bool IsPlaybackSourceVolumeRamping(IPlaybackSource playbackSource);
+        void PlayAll(TimeSpan fadeIn);
+        Task PauseAllAsync(TimeSpan fadeOut);
         Task ChangePlayerServiceImplementation(IAudioSettings settings);
         ISMTCManager SMTCManager { get; set; }
         int ConnectedPlaybackSourceCount { get; }

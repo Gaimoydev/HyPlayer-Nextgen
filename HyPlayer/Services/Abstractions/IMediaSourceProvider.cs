@@ -32,8 +32,15 @@ public interface IMediaSourceProvider
 /// <summary>
 /// 媒体源服务，根据 <see cref="HyPlayItem.ProviderId"/> 路由到对应的 <see cref="IMediaSourceProvider"/>
 /// </summary>
+public interface IMediaPrefetchProvider
+{
+    Task PrefetchAsync(HyPlayItem item, CancellationToken ct);
+}
+
 public interface IMediaSourceService
 {
+    Task PrefetchAsync(HyPlayItem item, CancellationToken ct);
+
     /// <summary>
     /// 为指定曲目创建媒体源
     /// </summary>

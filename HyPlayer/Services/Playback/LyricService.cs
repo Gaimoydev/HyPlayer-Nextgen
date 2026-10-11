@@ -56,6 +56,49 @@ public sealed class LyricService : ILyricService
     /// <inheritdoc />
     public TimeSpan LyricOffset { get; set; }
 
+    public async Task<IReadOnlyList<(double Start, double End)>> GetVocalRegionsAsync(HyPlayItem item, CancellationToken ct = default)
+    {
+        List<SongLyric>? lines = null;
+        if (ReferenceEquals(_state.NowPlayingItem, item) && _state.LyricInfo?.Lyrics is { Count: > 0 } current)
+            lines = current;
+        if (lines is null && item.ItemType == HyPlayItemType.Netease && !string.IsNullOrWhiteSpace(item.Id))
+        {
+            var cached = await SimpleCacher.GetOrCreateCacheAsync(
+                CacheType.HyLyricInfo, item.Id,
+                () => Task.FromResult<HyLyricInfo>(null),
+                cancellationToken: ct);
+            if (cached?.Lyrics is { Count: > 0 }) lines = cached.Lyrics;
+        }
+        if (lines is null)
+        {
+            var pure = item.ItemType switch
+            {
+                HyPlayItemType.Netease => await LoadNcLyricAsync(item, ct),
+                HyPlayItemType.Local => await LoadLocalLyricAsync(item),
+                _ => new PureLyricInfo()
+            };
+            lines = pure is KaraokLyricInfo ? Utils.ConvertKaraok(pure) : Utils.ConvertPureLyric(pure.PureLyrics);
+        }
+
+        var regions = new List<(double Start, double End)>();
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i].LyricLine;
+            if (line is null || string.IsNullOrWhiteSpace(line.CurrentLyric)) continue;
+            var start = line.StartTime.TotalSeconds;
+            double end;
+            if (line is KaraokeLyricsLine karaoke && karaoke.WordInfos is { Count: > 0 } words)
+                end = (words[^1].StartTime + words[^1].Duration).TotalSeconds;
+            else
+            {
+                var next = i + 1 < lines.Count ? lines[i + 1].LyricLine.StartTime.TotalSeconds : start + 8;
+                end = Math.Min(next, start + 8);
+            }
+            if (end > start) regions.Add((start, end));
+        }
+        return regions;
+    }
+
     /// <inheritdoc />
     public async Task LoadLyricsAsync(HyPlayItem item, CancellationToken ct = default)
     {

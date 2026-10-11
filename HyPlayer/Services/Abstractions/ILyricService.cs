@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using HyPlayer.Classes;
@@ -23,6 +24,8 @@ public interface ILyricService
     /// 为指定曲目加载歌词
     /// </summary>
     Task LoadLyricsAsync(HyPlayItem item, CancellationToken ct = default);
+
+    Task<IReadOnlyList<(double Start, double End)>> GetVocalRegionsAsync(HyPlayItem item, CancellationToken ct = default);
 
     /// <summary>
     /// 根据播放位置更新当前歌词行

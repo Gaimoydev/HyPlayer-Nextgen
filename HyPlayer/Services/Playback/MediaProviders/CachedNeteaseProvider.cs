@@ -23,7 +23,7 @@ namespace HyPlayer.Services.Playback.MediaProviders;
 /// <see cref="MediaSource.CreateFromDownloadOperation"/> 实现边下边播。
 /// </para>
 /// </summary>
-public sealed class CachedNeteaseProvider : IMediaSourceProvider
+public sealed class CachedNeteaseProvider : IMediaSourceProvider, IMediaPrefetchProvider
 {
     private const string CacheFileNameFormat = "{0}.{1}";
     private const string SongUrlCacheKeyFormat = "{0}_{1}";
@@ -67,6 +67,13 @@ public sealed class CachedNeteaseProvider : IMediaSourceProvider
         ct.ThrowIfCancellationRequested();
 
         var (playUrl, _) = await GetPlayUrlAsync(item, ct);
+
+        if (_downloadOperations.TryGetValue(item.Id, out var pendingOperation))
+        {
+            return pendingOperation.IsRandomAccessRequired || playUrl == null
+                ? MediaSource.CreateFromDownloadOperation(pendingOperation)
+                : MediaSource.CreateFromUri(new Uri(playUrl));
+        }
 
         // 先检查缓存
         var cacheFile = await GetCacheFileAsync(item, ct);
@@ -157,6 +164,30 @@ public sealed class CachedNeteaseProvider : IMediaSourceProvider
         return (playUrl, size);
     }
 
+    public async Task PrefetchAsync(HyPlayItem item, CancellationToken ct)
+    {
+        var (playUrl, _) = await GetPlayUrlAsync(item, ct);
+        if (string.IsNullOrEmpty(playUrl) || _downloadOperations.ContainsKey(item.Id)) return;
+        if (await GetCacheFileAsync(item, ct) != null) return;
+
+        var headerIsValid = await SupportsRandomAccessAsync(playUrl, ct);
+        var destinationFolder = await StorageFolder.GetFolderFromPathAsync(_setting.cacheDir);
+        var fileName = string.Format(CacheFileNameFormat, item.Id, item.SubExt);
+        var destinationFile = await destinationFolder.CreateFileAsync(fileName, CreationCollisionOption.ReplaceExisting);
+        var operation = _downloader.CreateDownload(new Uri(playUrl), destinationFile);
+        operation.IsRandomAccessRequired = headerIsValid;
+        if (!_downloadOperations.TryAdd(item.Id, operation)) return;
+        try
+        {
+            await operation.StartAsync().AsTask(ct);
+        }
+        finally
+        {
+            _downloadOperations.TryRemove(item.Id, out _);
+            StorageMaintenance.ScheduleTrim();
+        }
+    }
+
     /// <summary>
     /// 检查缓存文件是否存在且大小匹配
     /// </summary>
@@ -165,6 +196,7 @@ public sealed class CachedNeteaseProvider : IMediaSourceProvider
         try
         {
             ct.ThrowIfCancellationRequested();
+            if (_downloadOperations.ContainsKey(item.Id)) return null;
             var cacheFolder = await StorageFolder.GetFolderFromPathAsync(_setting.cacheDir);
             var fileName = string.Format(CacheFileNameFormat, item.Id, item.SubExt);
             var cacheFile = await cacheFolder.GetFileAsync(fileName);
@@ -234,6 +266,7 @@ public sealed class CachedNeteaseProvider : IMediaSourceProvider
             finally
             {
                 _downloadOperations.TryRemove(item.Id, out _);
+                StorageMaintenance.ScheduleTrim();
             }
         }, "download and cache NetEase media");
 

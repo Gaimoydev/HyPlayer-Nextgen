@@ -50,12 +50,42 @@ namespace HyPlayer.Classes.Settings
         /// </summary>
         public bool CrossFade
         {
-            get => GetSettings(nameof(CrossFade), false);
+            get => TransitionMode == "xfd";
+            set => TransitionMode = value ? "xfd" : "dir";
+        }
+
+        public string TransitionMode
+        {
+            get => GetSettings(nameof(TransitionMode), GetSettings("CrossFade", false) ? "xfd" : "dir");
             set
             {
-                SettingsBase.SetSettings("CrossFade", value);
-                Ioc.Default.GetService<IPlaylistService>()?.SetTransition(value ? "xfd" : "dir");
+                SettingsBase.SetSettings(nameof(TransitionMode), value);
+                Ioc.Default.GetService<IPlaylistService>()?.SetTransition(value);
             }
+        }
+
+        public bool PlaybackFade
+        {
+            get => GetSettings(nameof(PlaybackFade), true);
+            set => SettingsBase.SetSettings(nameof(PlaybackFade), value);
+        }
+
+        public double AutoMixMaxOverlap
+        {
+            get => GetSettings(nameof(AutoMixMaxOverlap), 32d);
+            set => SettingsBase.SetSettings(nameof(AutoMixMaxOverlap), value);
+        }
+
+        public bool AutoMixTimeStretch
+        {
+            get => GetSettings(nameof(AutoMixTimeStretch), true);
+            set => SettingsBase.SetSettings(nameof(AutoMixTimeStretch), value);
+        }
+
+        public bool AutoMixKeepAlbumGapless
+        {
+            get => GetSettings(nameof(AutoMixKeepAlbumGapless), true);
+            set => SettingsBase.SetSettings(nameof(AutoMixKeepAlbumGapless), value);
         }
 
         /// <summary>
@@ -216,6 +246,18 @@ namespace HyPlayer.Classes.Settings
             }
         }
 
+        public double cacheLimitGB
+        {
+            get => GetSettings(nameof(cacheLimitGB), 5d);
+            set => SettingsBase.SetSettings(nameof(cacheLimitGB), value);
+        }
+
+        public bool cacheLimitCustom
+        {
+            get => GetSettings(nameof(cacheLimitCustom), false);
+            set => SettingsBase.SetSettings(nameof(cacheLimitCustom), value);
+        }
+
         /// <summary>
         /// Audio render device identifier.
         /// </summary>
@@ -225,7 +267,7 @@ namespace HyPlayer.Classes.Settings
             set
             {
                 SettingsBase.SetSettings("AudioRenderDeviceID", value);
-                _ = Ioc.Default.GetRequiredService<IPlaybackControlService>().InitializeAsync();
+                _ = Ioc.Default.GetRequiredService<IPlaybackControlService>().ApplyAudioDeviceAsync();
             }
         }
 
