@@ -52,10 +52,15 @@ namespace HyPlayer.ViewModels
 
         private async Task LoadRadioResult()
         {
-            var jv = await SimpleCacher.GetOrCreateCacheAsync(CacheType.Login, $"djchannel_subscribed_{CurrentPage}",
+            if (CurrentPage > 0)
+            {
+                HasMore = false;
+                return;
+            }
+            var jv = await SimpleCacher.GetOrCreateCacheAsync(CacheType.Login, "djchannel_subscribed_0",
                     async () =>
                     {
-                        var json = await _api.RequestAsync(NeteaseApis.DjChannelSubscribedApi);
+                        var json = await _api.RequestAsync(NeteaseApis.DjChannelSubscribedApi, new HyPlayer.NeteaseApi.ApiContracts.DjChannel.DjChannelSubscribedRequest { Limit = 200 });
                         if (json.IsError)
                         {
                             _notification.ShowMessage("加载订阅播客列表错误", json.Error.Message);
@@ -66,8 +71,8 @@ namespace HyPlayer.ViewModels
                     });
 
 
-            HasMore = jv.Data?.HasMore is true;
-            foreach (var pljs in jv.Data?.Data ?? [])
+            HasMore = false;
+            foreach (var pljs in jv?.Data?.Data ?? [])
             {
                 Content.Add(new SimpleListItem
                 {
