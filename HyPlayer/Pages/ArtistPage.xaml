@@ -103,6 +103,21 @@
                         FontSize="15"
                         MaxLines="7"
                         Text="{x:Bind ViewModel.Artist.Information, Mode=OneWay}" />
+                    <Button
+                        Margin="0,12,0,0"
+                        AutomationProperties.Name="播放全部歌曲"
+                        Command="{x:Bind ViewModel.PlayAllSongsCommand}"
+                        Style="{StaticResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xE768;" />
+                            <TextBlock Text="播放全部" />
+                            <ProgressRing
+                                Width="14"
+                                Height="14"
+                                IsActive="{x:Bind ViewModel.IsPlayingAll, Mode=OneWay}"
+                                Visibility="{x:Bind ViewModel.IsPlayingAll, Mode=OneWay}" />
+                        </StackPanel>
+                    </Button>
 
                     <StackPanel.RenderTransform>
                         <ScaleTransform x:Name="UserInfoScale" CenterY="125" />
@@ -118,7 +133,8 @@
                 Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                 MaxLines="7"
                 Selectable="True"
-                Text="{x:Bind ViewModel.Artist.Description}"
+                ExpandedMaxHeight="280"
+                Text="{x:Bind ViewModel.Artist.Description, Mode=OneWay}"
                 TextWrapping="WrapWholeWords">
                 <controls1:ExpandableTextBox.RenderTransform>
                     <ScaleTransform x:Name="DescScale" CenterX="125" CenterY="0" />
@@ -141,10 +157,16 @@
             SelectedIndex="{x:Bind ViewModel.CurrentPivotIndex, Mode=TwoWay}"
             SelectionChanged="Pivot_SelectionChanged">
             <PivotItem Header="热门50首">
-                <controls1:SongsList x:Name="HotSongContainer" Songs="{x:Bind ViewModel.HotSongs}" />
+                <controls1:SongsList
+                    x:Name="HotSongContainer"
+                    IsLoading="{x:Bind ViewModel.IsLoadingHotSongs, Mode=OneWay}"
+                    Songs="{x:Bind ViewModel.HotSongs}" />
             </PivotItem>
             <PivotItem Header="全部歌曲">
-                <controls1:SongsList x:Name="AllSongContainer" Songs="{x:Bind ViewModel.AllSongs}">
+                <controls1:SongsList
+                    x:Name="AllSongContainer"
+                    IsLoading="{x:Bind ViewModel.IsLoadingSongs, Mode=OneWay}"
+                    Songs="{x:Bind ViewModel.AllSongs}">
                     <controls1:SongsList.Footer>
                         <StackPanel
                             Grid.Row="3"

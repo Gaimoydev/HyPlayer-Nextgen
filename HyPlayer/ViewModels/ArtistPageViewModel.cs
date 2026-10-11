@@ -1,4 +1,5 @@
 ﻿using AsyncAwaitBestPractices;
+using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HyPlayer.Classes;
@@ -49,10 +50,30 @@ namespace HyPlayer.ViewModels
 
         public async Task InitializeArtistInfo(string artistId)
         {
+            IsLoadingHotSongs = true;
+            IsLoadingSongs = true;
+            try
+            {
+                if (!await LoadArtistDetailAsync(artistId))
+                {
+                    IsLoadingHotSongs = false;
+                    IsLoadingSongs = false;
+                }
+            }
+            catch
+            {
+                IsLoadingHotSongs = false;
+                IsLoadingSongs = false;
+                throw;
+            }
+        }
+
+        private async Task<bool> LoadArtistDetailAsync(string artistId)
+        {
             if (artistId is null)
             {
                 _notification.ShowMessage("艺人ID为空", "请检查传入的参数是否正确");
-                return;
+                return false;
             }
             var res = await SimpleCacher.GetOrCreateCacheAsync(CacheType.ArtistDetail, artistId, async () =>
             {
@@ -74,7 +95,7 @@ namespace HyPlayer.ViewModels
 
             if (res is null)
             {
-                return;
+                return false;
             }
 
             Artist = res?.Artist.MapToNcArtist();
@@ -91,8 +112,22 @@ namespace HyPlayer.ViewModels
             LoadHotSongs().SafeFireAndForget();
             LoadSongs().SafeFireAndForget();
             LoadAlbum().SafeFireAndForget();
+            return true;
         }
         private async Task LoadHotSongs()
+        {
+            IsLoadingHotSongs = true;
+            try
+            {
+                await LoadHotSongsCore();
+            }
+            finally
+            {
+                IsLoadingHotSongs = false;
+            }
+        }
+
+        private async Task LoadHotSongsCore()
         {
 
             HotSongs.Clear();
@@ -135,6 +170,19 @@ namespace HyPlayer.ViewModels
         }
 
         private async Task LoadSongs()
+        {
+            IsLoadingSongs = true;
+            try
+            {
+                await LoadSongsCore();
+            }
+            finally
+            {
+                IsLoadingSongs = false;
+            }
+        }
+
+        private async Task LoadSongsCore()
         {
             var j1 = await SimpleCacher.GetOrCreateCacheAsync(CacheType.ArtistSongsDetial, Artist.Id + "_" + CurrentPage,
                     async () =>
@@ -212,6 +260,66 @@ namespace HyPlayer.ViewModels
             else if (CurrentPivotIndex == 2)
                 LoadAlbum().SafeFireAndForget();
         }
+        [ObservableProperty]
+        public partial bool IsPlayingAll { get; set; }
+
+        [ObservableProperty]
+        public partial bool IsLoadingHotSongs { get; set; }
+
+        [ObservableProperty]
+        public partial bool IsLoadingSongs { get; set; }
+
+        [RelayCommand]
+        private async Task PlayAllSongsAsync()
+        {
+            if (Artist is null || IsPlayingAll) return;
+            IsPlayingAll = true;
+            try
+            {
+                var songs = new System.Collections.Generic.List<NCSong>();
+                for (var offset = 0; offset < 1000; offset += 100)
+                {
+                    var resp = await _api.RequestAsync(NeteaseApis.ArtistSongsApi,
+                        new ArtistSongsRequest { ArtistId = Artist.Id, Limit = 100, Offset = offset });
+                    if (resp.IsError)
+                    {
+                        if (songs.Count == 0)
+                        {
+                            _notification.ShowMessage("获取歌手歌曲失败", resp.Error?.Message);
+                            return;
+                        }
+                        break;
+                    }
+                    foreach (var item in resp.Value.Songs ?? [])
+                    {
+                        if (item.Privilege?.St != 0) continue;
+                        var ncSong = item.MapNcSong();
+                        ncSong.IsAvailable = true;
+                        ncSong.Order = songs.Count;
+                        songs.Add(ncSong);
+                    }
+                    if (!resp.Value.HasMore) break;
+                }
+                if (songs.Count == 0)
+                {
+                    _notification.ShowMessage("没有可播放的歌曲", Artist.Name);
+                    return;
+                }
+                var playlist = Ioc.Default.GetRequiredService<IPlaylistService>();
+                playlist.AppendNcSongs(songs, clearFirst: true);
+                playlist.PlaySourceId = "ar" + Artist.Id;
+                if (playlist.Items.Count > 0) await playlist.MoveToAsync(playlist.Items[0]);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _notification.ShowMessage("播放全部失败", ex.Message);
+            }
+            finally
+            {
+                IsPlayingAll = false;
+            }
+        }
+
         [RelayCommand]
         private void PreviousPage()
         {
