@@ -1,9 +1,9 @@
 using System;
-using System.Diagnostics;
-using System.Threading;
 using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.Messaging;
 using HyPlayer.Classes;
 using HyPlayer.Services.Abstractions;
+using HyPlayer.Services.Playback.Messages;
 using HyPlayer.UWP.Chopin.Abstractions.Interfaces;
 using HyPlayer.UWP.Chopin.Abstractions.Models;
 
@@ -19,195 +19,222 @@ namespace HyPlayer.Services.Playback.Transitions;
 public sealed partial class CrossFadeTransition : ITrackTransition, IDisposable
 {
     private readonly Setting _setting;
+    private readonly IPlayer _player;
+    private readonly PlaybackStateService _state;
+    private readonly NextTrackPreloader _preloader = new();
 
-    private AudioGraphPlaybackSource? _currentPlaybackSource;
-    private AudioGraphPlaybackSource? _nextPlaybackSource;
-    private HyPlayItem? _nextItem;
-
-    private double _currentInitialVolume = 1.0;
-    private double _nextInitialVolume = 1.0;
-
-    private readonly SemaphoreSlim _loaderSemaphore = new(1, 1);
-
-    /// <summary>是否已预加载下一首</summary>
-    private volatile bool _preloaded;
-
-    /// <summary>是否正在预加载下一首</summary>
-    private volatile bool _preloading;
-
-    /// <summary>是否正在执行淡入淡出</summary>
-    private volatile bool _processing;
-
-    /// <summary>下一首是否已提交为当前播放项</summary>
-    private volatile bool _committedNext;
-
-    /// <summary>本次淡入完成后已提交的播放源</summary>
-    private AudioGraphPlaybackSource? _committedPlaybackSource;
-
-    /// <summary>本次淡入完成后已提交的播放项</summary>
-    private HyPlayItem? _committedItem;
-
-    /// <summary>淡入淡出开始时的单调时钟刻度</summary>
-    private long _fadeStartTicks;
-
+    private AudioGraphPlaybackSource? _outgoing;
+    private HyPlayItem? _outgoingItem;
+    private AudioGraphPlaybackSource? _incoming;
+    private HyPlayItem? _incomingItem;
+    private TimeSpan _fadeStartPosition;
+    private TimeSpan _fadeDuration;
+    private bool _fading;
+    private bool _committed;
+    private int _fadeVersion;
     private bool _disposed;
 
     /// <inheritdoc />
     public string Id => "xfd";
 
-    /// <summary>
-    /// 创建交叉淡入淡出过渡实例。
-    /// </summary>
-    /// <param name="setting">应用设置，提供 CrossFade / CrossFadeTime / EnableAudioGain 配置。</param>
-    public CrossFadeTransition(Setting setting)
+    public CrossFadeTransition(Setting setting, IPlayer player, PlaybackStateService state)
     {
         _setting = setting ?? throw new ArgumentNullException(nameof(setting));
+        _player = player ?? throw new ArgumentNullException(nameof(player));
+        _state = state ?? throw new ArgumentNullException(nameof(state));
     }
 
-    /// <summary>
-    /// 每次播放位置更新时调用。
-    /// <list type="number">
-    ///   <item>当剩余时间 ≤ max(总时长×0.125, 20s) 时触发预加载。</item>
-    ///   <item>当剩余时间 ≤ CrossFadeTime 时开始淡入淡出处理。</item>
-    /// </list>
-    /// </summary>
+    private TimeSpan FadeTime => TimeSpan.FromSeconds(Math.Clamp(_setting.CrossFadeTime, 1, 12));
+
     public void OnPositionTick(TrackTransitionContext ctx)
     {
-        if (!_setting.CrossFade) return;
-
-        // 尝试预加载
-        ctx.TaskRunner.Forget(TryPreloadAsync(ctx), "cross-fade preload next track");
-
-        if (!_preloaded) return;
-
-        var remaining = (ctx.Duration - ctx.Position).TotalSeconds;
-
-        // 开始淡入淡出
-        if (remaining <= _setting.CrossFadeTime && !_processing)
+        if (_fading)
         {
-            _processing = true;
-            _fadeStartTicks = Stopwatch.GetTimestamp();
-
-            if (_nextPlaybackSource is not null)
-            {
-                ctx.Player.PlayPlaybackSource(_nextPlaybackSource);
-                SetPrimaryPlaybackSourceIfSupported(ctx.Player, _nextPlaybackSource);
-            }
-
-            if (!_committedNext && _nextItem is not null)
-            {
-                _committedPlaybackSource = _nextPlaybackSource;
-                _committedItem = _nextItem;
-                ctx.TaskRunner.Forget(ctx.CommitItemAsync(_nextItem), "commit cross-fade preloaded item");
-                _committedNext = true;
-            }
-        }
-
-        if (!_processing) return;
-
-        var multiplier = GetFadeMultiplier();
-
-        // 淡出当前曲目
-        if (_currentPlaybackSource is not null)
-        {
-            ProcessFadeOut(ctx, multiplier);
-        }
-
-        // 淡入下一曲目
-        if (_nextPlaybackSource is not null)
-        {
-            ProcessFadeIn(ctx, multiplier);
-        }
-
-        if (multiplier >= 1.0)
-        {
-            CompleteFade(ctx);
-        }
-    }
-
-    /// <summary>
-    /// 当前曲目自然结束时调用。
-    /// 如果已预加载，则断开旧源并清理；否则回退到直接切歌。
-    /// </summary>
-    public async Task OnTrackEndedAsync(TrackTransitionContext ctx)
-    {
-        var nextPlaybackSource = _nextPlaybackSource ?? _committedPlaybackSource;
-        var nextItem = _nextItem ?? _committedItem;
-
-        if (_currentPlaybackSource is not null && nextPlaybackSource is not null && nextItem is not null)
-        {
-            var targetVolume = _setting.EnableAudioGain ? _nextInitialVolume : 1.0;
-            ctx.Player.PlayPlaybackSource(nextPlaybackSource);
-            ctx.Player.SetPlaybackSourceOutputVolume(targetVolume, nextPlaybackSource);
-            SetPrimaryPlaybackSourceIfSupported(ctx.Player, nextPlaybackSource);
-
-            if (!_committedNext)
-            {
-                await ctx.CommitItemAsync(nextItem).ConfigureAwait(false);
-                _committedNext = true;
-            }
-
-            // 已经在淡入淡出中或已完成预加载 — 断开旧源
-            ctx.Player.DisconnectPlaybackSource(_currentPlaybackSource);
-            CleanupPlaybackSourceItem(_currentPlaybackSource);
-
-            _currentPlaybackSource = null;
-        }
-        else
-        {
-            // 未预加载 — 回退到直接切歌
-            ResetInternal();
-            var fallbackItem = await ctx.RequestNextItemAsync(true).ConfigureAwait(false);
-            if (fallbackItem is not null)
-            {
-                await ctx.LoadMediaSourceAsync(fallbackItem, true, true, true).ConfigureAwait(false);
-            }
+            if (!_committed && ctx.Position - _fadeStartPosition >= _fadeDuration / 2)
+                Commit(ctx);
             return;
         }
 
-        // 清理淡入淡出状态
-        _processing = false;
-        _preloaded = false;
-        _preloading = false;
-        _nextPlaybackSource = null;
-        _nextItem = null;
-        _fadeStartTicks = 0;
+        if (_preloader.IsReady && !ReferenceEquals(_preloader.ForItem, ctx.CurrentItem))
+            _preloader.Discard(ctx.Player);
+
+        _preloader.TryPreload(ctx, FadeTime + TimeSpan.FromSeconds(15));
+
+        var remaining = ctx.Duration - ctx.Position;
+        if (!_preloader.IsReady || remaining > FadeTime || remaining < TimeSpan.FromMilliseconds(300)) return;
+        BeginFade(ctx, remaining);
     }
 
-    /// <summary>
-    /// 用户手动切歌时调用 — 取消正在进行的淡入淡出，断开预加载源，重置状态。
-    /// </summary>
+    private void BeginFade(TrackTransitionContext ctx, TimeSpan remaining)
+    {
+        if (ctx.CurrentItem?.PlayItem?.AudioGraphPlaybackSource is not AudioGraphPlaybackSource outgoing) return;
+        var next = _preloader.Take();
+        if (next is null) return;
+
+        _outgoing = outgoing;
+        _outgoingItem = ctx.CurrentItem;
+        _incoming = next.Value.Source;
+        _incomingItem = next.Value.Item;
+        _fadeDuration = remaining < FadeTime ? remaining : FadeTime;
+        _fadeStartPosition = ctx.Position;
+        _fading = true;
+        _committed = false;
+        var version = ++_fadeVersion;
+        SetTransitioning(true);
+
+        var target = TargetVolume(_incomingItem);
+        ctx.Player.PlayPlaybackSource(_incoming);
+        _ = ctx.Player.RampPlaybackSourceVolumeAsync(_incoming, target, _fadeDuration);
+        var fadeOut = ctx.Player.RampPlaybackSourceVolumeAsync(_outgoing, 0, _fadeDuration);
+        ctx.TaskRunner.Forget(FinishWhenDoneAsync(ctx, fadeOut, version), "cross-fade completion");
+    }
+
+    private async Task FinishWhenDoneAsync(TrackTransitionContext ctx, Task<bool> fadeOut, int version)
+    {
+        var completed = await fadeOut.ConfigureAwait(false);
+        if (!completed || version != _fadeVersion || !_fading) return;
+        if (!_committed) Commit(ctx);
+        ReleaseOutgoing(ctx);
+        _fading = false;
+        SetTransitioning(false);
+    }
+
+    private void SetTransitioning(bool value)
+    {
+        if (_state.IsTransitioning == value) return;
+        _state.IsTransitioning = value;
+        WeakReferenceMessenger.Default.Send(new TransitionStateChangedMessage(value, value ? _incomingItem : null));
+    }
+
+    private void Commit(TrackTransitionContext ctx)
+    {
+        if (_committed || _incoming is null || _incomingItem is null) return;
+        _committed = true;
+        if (ctx.Player is AudioGraphPlayer graphPlayer) graphPlayer.PrimaryPlaybackSource = _incoming;
+        ctx.TaskRunner.Forget(ctx.CommitItemAsync(_incomingItem), "commit cross-fade item");
+    }
+
+    private void ReleaseOutgoing(TrackTransitionContext ctx)
+    {
+        if (_outgoing is not null)
+        {
+            try
+            {
+                ctx.Player.DisconnectPlaybackSource(_outgoing);
+            }
+            catch
+            {
+            }
+        }
+        if (_outgoingItem is not null && ReferenceEquals(_outgoingItem.PlayItem?.AudioGraphPlaybackSource, _outgoing))
+        {
+            _outgoingItem.PlayItem?.Dispose();
+            _outgoingItem.PlayItem = null;
+        }
+        _outgoing = null;
+        _outgoingItem = null;
+    }
+
+    public async Task OnTrackEndedAsync(TrackTransitionContext ctx)
+    {
+        if (_fading)
+        {
+            Commit(ctx);
+            _fadeVersion++;
+            ReleaseOutgoing(ctx);
+            if (_incoming is not null)
+                _ = ctx.Player.RampPlaybackSourceVolumeAsync(_incoming, TargetVolume(_incomingItem), TimeSpan.FromMilliseconds(250));
+            _fading = false;
+            SetTransitioning(false);
+            return;
+        }
+
+        if (_preloader.IsReady && ReferenceEquals(_preloader.ForItem, ctx.CurrentItem) &&
+            ctx.CurrentItem?.PlayItem?.AudioGraphPlaybackSource is AudioGraphPlaybackSource outgoing)
+        {
+            var next = _preloader.Take()!.Value;
+            _outgoing = outgoing;
+            _outgoingItem = ctx.CurrentItem;
+            _incoming = next.Source;
+            _incomingItem = next.Item;
+            _committed = false;
+            ctx.Player.PlayPlaybackSource(_incoming);
+            _ = ctx.Player.RampPlaybackSourceVolumeAsync(_incoming, TargetVolume(_incomingItem), TimeSpan.FromMilliseconds(250));
+            Commit(ctx);
+            ReleaseOutgoing(ctx);
+            return;
+        }
+
+        _preloader.Discard(ctx.Player);
+        var fallbackItem = await ctx.RequestNextItemAsync(true).ConfigureAwait(false);
+        if (fallbackItem is not null)
+            await ctx.LoadMediaSourceAsync(fallbackItem, true, true, true).ConfigureAwait(false);
+    }
+
     public Task OnManualSkipAsync(TrackTransitionContext ctx)
     {
-        if (!_processing && !_preloaded) return Task.CompletedTask;
-
-        // 断开并清理当前源
-        if (_currentPlaybackSource is not null)
+        _fadeVersion++;
+        _preloader.Discard(ctx.Player);
+        if (_fading)
         {
-            ctx.Player.DisconnectPlaybackSource(_currentPlaybackSource);
-            HyPlayItem? currentItem = null;
-            if (_currentPlaybackSource.PlaybackSource?.CustomProperties.TryGetValue("nowPlayingItem", out var obj) == true)
-                currentItem = obj as HyPlayItem;
-            currentItem?.PlayItem?.Dispose();
-            if (currentItem is not null)
+            if (_incoming is not null)
             {
-                currentItem.PlayItem = null;
+                try
+                {
+                    ctx.Player.DisconnectPlaybackSource(_incoming);
+                }
+                catch
+                {
+                }
+                if (_incomingItem is not null && ReferenceEquals(_incomingItem.PlayItem?.AudioGraphPlaybackSource, _incoming))
+                {
+                    _incomingItem.PlayItem?.Dispose();
+                    _incomingItem.PlayItem = null;
+                }
             }
+            ReleaseOutgoing(ctx);
         }
-
-        // 断开并清理预加载的下一首源
-        if (_nextPlaybackSource is not null)
-        {
-            ctx.Player.DisconnectPlaybackSource(_nextPlaybackSource);
-            _nextItem?.PlayItem?.Dispose();
-            if (_nextItem is not null)
-            {
-                _nextItem.PlayItem = null;
-            }
-        }
-
         ResetInternal();
         return Task.CompletedTask;
+    }
+
+    public void OnSeek(TrackTransitionContext ctx, TimeSpan target)
+    {
+        if (!_fading)
+        {
+            if (_preloader.IsReady && target < ctx.Duration - FadeTime - TimeSpan.FromSeconds(15))
+                _preloader.Discard(ctx.Player);
+            return;
+        }
+
+        _fadeVersion++;
+        if (_committed)
+        {
+            ReleaseOutgoing(ctx);
+            if (_incoming is not null)
+                _ = ctx.Player.RampPlaybackSourceVolumeAsync(_incoming, TargetVolume(_incomingItem), TimeSpan.FromMilliseconds(200));
+        }
+        else
+        {
+            if (_incoming is not null)
+            {
+                try
+                {
+                    ctx.Player.DisconnectPlaybackSource(_incoming);
+                }
+                catch
+                {
+                }
+                if (_incomingItem is not null && ReferenceEquals(_incomingItem.PlayItem?.AudioGraphPlaybackSource, _incoming))
+                {
+                    _incomingItem.PlayItem?.Dispose();
+                    _incomingItem.PlayItem = null;
+                }
+            }
+            if (_outgoing is not null)
+                _ = ctx.Player.RampPlaybackSourceVolumeAsync(_outgoing, TargetVolume(_outgoingItem), TimeSpan.FromMilliseconds(200));
+        }
+        ResetInternal();
     }
 
     /// <summary>
@@ -215,196 +242,24 @@ public sealed partial class CrossFadeTransition : ITrackTransition, IDisposable
     /// </summary>
     public void Reset()
     {
+        _fadeVersion++;
+        _preloader.Discard(_player);
         ResetInternal();
     }
 
-    /// <summary>
-    /// 尝试预加载下一首曲目。
-    /// 当剩余时间 ≤ max(总时长×0.125, 20) 且总时长 &gt; 10s 时触发。
-    /// </summary>
-    private async Task TryPreloadAsync(TrackTransitionContext ctx)
-    {
-        if (_preloaded || _preloading || _processing || !_setting.CrossFade) return;
+    private double TargetVolume(HyPlayItem? item) => _setting.EnableAudioGain ? item?.Volume ?? 1d : 1d;
 
-        try
-        {
-            _preloading = true;
-            await _loaderSemaphore.WaitAsync().ConfigureAwait(false);
-            if (_preloaded || _processing) return;
-
-            var totalSeconds = ctx.Duration.TotalSeconds;
-            var currentSeconds = ctx.Position.TotalSeconds;
-            var remaining = totalSeconds - currentSeconds;
-            var targetTime = Math.Max(totalSeconds * 0.125, 20);
-
-            if (remaining > targetTime || totalSeconds <= 10) return;
-
-            _preloaded = true;
-
-            // 记录当前播放源
-            if (ctx.CurrentItem?.PlayItem?.AudioGraphPlaybackSource is AudioGraphPlaybackSource currentSource)
-            {
-                _currentPlaybackSource = currentSource;
-                _currentInitialVolume = ctx.CurrentItem.Volume ?? 1.0;
-            }
-
-            // 请求下一首
-            var nextItem = await ctx.RequestNextItemAsync(false).ConfigureAwait(false);
-            if (nextItem is null)
-            {
-                _preloaded = false;
-                return;
-            }
-
-            _nextItem = nextItem;
-            _committedNext = false;
-            _committedPlaybackSource = null;
-            _committedItem = null;
-
-            // 加载但不自动播放（play=false, setPrimary=false）
-            await ctx.LoadMediaSourceAsync(nextItem, false, false, false).ConfigureAwait(false);
-
-            if (nextItem.PlayItem?.AudioGraphPlaybackSource is AudioGraphPlaybackSource nextSource)
-            {
-                _nextPlaybackSource = nextSource;
-                _nextInitialVolume = nextItem.Volume ?? 1.0;
-
-                // 初始音量设为 0，等待淡入
-                ctx.Player.SetPlaybackSourceOutputVolume(0, _nextPlaybackSource);
-            }
-            else
-            {
-                // 加载失败，重置预加载状态
-                _preloaded = false;
-                _nextItem = null;
-            }
-        }
-        finally
-        {
-            _preloading = false;
-            _loaderSemaphore.Release();
-        }
-    }
-
-    /// <summary>
-    /// 处理下一曲目的淡入效果。
-    /// 音量从 0 线性增长到目标音量，增长曲线基于已播放时间 / CrossFadeTime。
-    /// </summary>
-    private void ProcessFadeIn(TrackTransitionContext ctx, double multiplier)
-    {
-        try
-        {
-            if (_nextPlaybackSource is null) return;
-
-            // 确保下一首已开始播放
-            ctx.Player.PlayPlaybackSource(_nextPlaybackSource);
-
-            var targetVolume = _setting.EnableAudioGain ? _nextInitialVolume : 1.0;
-            ctx.Player.SetPlaybackSourceOutputVolume(targetVolume * multiplier, _nextPlaybackSource);
-        }
-        catch
-        {
-            // 忽略播放源可能已被释放的异常
-        }
-    }
-
-    /// <summary>
-    /// 处理当前曲目的淡出效果。
-    /// 音量从目标音量线性降低到 0，降低曲线基于 (CrossFadeTime - 剩余时间) / CrossFadeTime。
-    /// </summary>
-    private void ProcessFadeOut(TrackTransitionContext ctx, double multiplier)
-    {
-        try
-        {
-            if (_currentPlaybackSource is null) return;
-
-            var targetVolume = _setting.EnableAudioGain ? _currentInitialVolume : 1.0;
-            ctx.Player.SetPlaybackSourceOutputVolume(targetVolume * (1 - multiplier), _currentPlaybackSource);
-        }
-        catch
-        {
-            // 忽略播放源可能已被释放的异常
-        }
-    }
-
-    private double GetFadeMultiplier()
-    {
-        if (_fadeStartTicks == 0) return 0;
-
-        var crossFadeSeconds = Math.Max(_setting.CrossFadeTime, 0.001);
-        var elapsedSeconds = (Stopwatch.GetTimestamp() - _fadeStartTicks) / (double)Stopwatch.Frequency;
-        return Math.Clamp(elapsedSeconds / crossFadeSeconds, 0, 1);
-    }
-
-    private void CompleteFade(TrackTransitionContext ctx)
-    {
-        if (_nextPlaybackSource is not null)
-        {
-            var targetVolume = _setting.EnableAudioGain ? _nextInitialVolume : 1.0;
-            ctx.Player.SetPlaybackSourceOutputVolume(targetVolume, _nextPlaybackSource);
-            SetPrimaryPlaybackSourceIfSupported(ctx.Player, _nextPlaybackSource);
-        }
-
-        if (_currentPlaybackSource is not null)
-        {
-            ctx.Player.DisconnectPlaybackSource(_currentPlaybackSource);
-            CleanupPlaybackSourceItem(_currentPlaybackSource);
-        }
-
-        _currentPlaybackSource = null;
-        _nextPlaybackSource = null;
-        _nextItem = null;
-        _processing = false;
-        _preloaded = false;
-        _preloading = false;
-        _fadeStartTicks = 0;
-    }
-
-    private static void CleanupPlaybackSourceItem(AudioGraphPlaybackSource? playbackSource)
-    {
-        if (playbackSource is null) return;
-
-        HyPlayItem? item = null;
-        if (playbackSource.PlaybackSource?.CustomProperties.TryGetValue("nowPlayingItem", out var obj) == true)
-            item = obj as HyPlayItem;
-
-        item?.PlayItem?.Dispose();
-        if (item is not null)
-        {
-            item.PlayItem = null;
-        }
-    }
-
-    private static void SetPrimaryPlaybackSourceIfSupported(IPlayer player, AudioGraphPlaybackSource? source)
-    {
-        if (source is null) return;
-
-        if (player is AudioGraphPlayer graphPlayer)
-        {
-            graphPlayer.PrimaryPlaybackSource = source;
-        }
-    }
-
-    /// <summary>
-    /// 内部重置，清理所有引用和状态标志。
-    /// </summary>
     private void ResetInternal()
     {
-        if (!_committedNext)
-            CleanupPlaybackSourceItem(_nextPlaybackSource);
-
-        _processing = false;
-        _preloaded = false;
-        _preloading = false;
-        _currentPlaybackSource = null;
-        _nextPlaybackSource = null;
-        _nextItem = null;
-        _currentInitialVolume = 1.0;
-        _nextInitialVolume = 1.0;
-        _committedNext = false;
-        _committedPlaybackSource = null;
-        _committedItem = null;
-        _fadeStartTicks = 0;
+        if (_fading) SetTransitioning(false);
+        _fading = false;
+        _committed = false;
+        _outgoing = null;
+        _outgoingItem = null;
+        _incoming = null;
+        _incomingItem = null;
+        _fadeStartPosition = TimeSpan.Zero;
+        _fadeDuration = TimeSpan.Zero;
     }
 
     /// <summary>
@@ -414,7 +269,7 @@ public sealed partial class CrossFadeTransition : ITrackTransition, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _loaderSemaphore.Dispose();
+        _preloader.Dispose();
         ResetInternal();
     }
 }

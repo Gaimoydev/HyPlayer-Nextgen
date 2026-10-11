@@ -80,6 +80,10 @@ public interface IPlaylistService
     /// </summary>
     void OnPositionTick(TimeSpan position, TimeSpan duration);
 
+    void OnSeekRequested(TimeSpan target);
+
+    HyPlayItem? PeekNextItem();
+
     /// <summary>
     /// 通知列表追加完成（触发 PlaylistChanged 消息）
     /// </summary>

@@ -41,10 +41,14 @@ public interface IPlaybackControlService
     /// <param name="removeCurrentSongs">是否移除当前播放的所有曲目</param>
     Task LoadAndPlayAsync(HyPlayItem item, bool setAsPrimary = true, bool autoPlay = true, bool removeCurrentSongs = true);
 
+    Task LoadAndPlayAsync(HyPlayItem item, bool setAsPrimary, bool autoPlay, bool removeCurrentSongs, TimeSpan fadeIn);
+
     /// <summary>
     /// 初始化播放器（AudioGraph 等底层资源）
     /// </summary>
     Task InitializeAsync();
+
+    Task ApplyAudioDeviceAsync();
 
     /// <summary>
     /// 检查 A-B 重复区间，若超出则跳回起点

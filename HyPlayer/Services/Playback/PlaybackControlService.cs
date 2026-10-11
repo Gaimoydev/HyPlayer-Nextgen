@@ -44,6 +44,8 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
 
     private readonly SemaphoreSlim _seekerLock = new(1, 1);
     private CancellationTokenSource? _mediaSourceCts;
+    private CancellationTokenSource? _preloadCts;
+    private CancellationTokenSource? _prefetchCts;
     private CancellationTokenSource? _lyricCts;
     private bool _disposed;
     private bool _initialized;
@@ -134,11 +136,52 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
             graphPlayer.OnGlobalPlaybackStatusChanged += OnGlobalPlaybackStatusChanged;
             graphPlayer.OnPositionChanged += OnPositionChanged;
             graphPlayer.OnPrimaryPlaybackSourceChanged += OnPrimaryPlaybackSourceChanged;
+            graphPlayer.OnDeviceLost += _ => ScheduleAudioDeviceRefresh();
+            Windows.Media.Devices.MediaDevice.DefaultAudioRenderDeviceChanged += OnDefaultAudioRenderDeviceChanged;
             smtc.ButtonPressed += SMTC_ButtonPressed;
             smtc.PlaybackPositionChangeRequested += SMTC_PlaybackPositionChangeRequested;
         }
 
         _state.Volume = _setting.Volume / 100d;
+    }
+
+    private CancellationTokenSource? _deviceRefreshCts;
+
+    private void OnDefaultAudioRenderDeviceChanged(object sender, Windows.Media.Devices.DefaultAudioRenderDeviceChangedEventArgs args)
+    {
+        if (args.Role != Windows.Media.Devices.AudioDeviceRole.Default || !string.IsNullOrEmpty(_setting.AudioRenderDevice)) return;
+        ScheduleAudioDeviceRefresh();
+    }
+
+    private void ScheduleAudioDeviceRefresh()
+    {
+        _deviceRefreshCts?.Cancel();
+        _deviceRefreshCts = new CancellationTokenSource();
+        var ct = _deviceRefreshCts.Token;
+        _taskRunner.Forget(async () =>
+        {
+            await Task.Delay(300, ct);
+            await ApplyAudioDeviceAsync();
+        }, "refresh audio render device");
+    }
+
+    public async Task ApplyAudioDeviceAsync()
+    {
+        if (!_initialized || _player is not AudioGraphPlayer graphPlayer || !graphPlayer.PlayerCreated) return;
+        try
+        {
+            await _player.ChangePlayerServiceImplementation(new AudioGraphAudioSetting
+            {
+                DefaultDeviceId = _setting.AudioRenderDevice,
+                OutputVolume = _setting.Volume / 100d,
+                AutoFallback = true,
+                EnableFFTProcessing = _setting.EnableFFT
+            });
+        }
+        catch (Exception ex)
+        {
+            _notification.ShowMessage("切换音频设备失败", ex.Message);
+        }
     }
 
     private void SMTC_PlaybackPositionChangeRequested(SystemMediaTransportControls sender, PlaybackPositionChangeRequestedEventArgs args)
@@ -171,10 +214,10 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
     /// <inheritdoc />
     public void Play()
     {
-        _player.PlayAll();
-        if(_player.PrimaryPlaybackSource.PlaybackStatus is not PlaybackStatus.Playing)
+        _player.PlayAll(_setting.PlaybackFade ? TimeSpan.FromMilliseconds(220) : TimeSpan.Zero);
+        if (_player.PrimaryPlaybackSource is { } primary && primary.PlaybackStatus is not PlaybackStatus.Playing)
         {
-            _player.PlayPlaybackSource(_player.PrimaryPlaybackSource);
+            _player.PlayPlaybackSource(primary);
         }
         _state.IsPlaying = true;
     }
@@ -182,8 +225,11 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
     /// <inheritdoc />
     public void Pause()
     {
-        _player.PauseAll();
         _state.IsPlaying = false;
+        if (_setting.PlaybackFade)
+            _taskRunner.Forget(_player.PauseAllAsync(TimeSpan.FromMilliseconds(180)), "fade out and pause");
+        else
+            _player.PauseAll();
     }
 
     /// <inheritdoc />
@@ -205,8 +251,9 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
             if (_player is AudioGraphPlayer agp && agp.PrimaryPlaybackSource is null)
                 return;
 
-            if (_player is AudioGraphPlayer graphPlayer)
-                _player.SeekPlaybackSource(target, graphPlayer.PrimaryPlaybackSource);
+            GetPlaylistService()?.OnSeekRequested(target);
+            if (_player is AudioGraphPlayer graphPlayer && graphPlayer.PrimaryPlaybackSource is { } primary)
+                _player.SeekPlaybackSource(target, primary);
 
             WeakReferenceMessenger.Default.Send(new SeekRequestedMessage(target));
 
@@ -220,13 +267,30 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
     }
 
     /// <inheritdoc />
-    public async Task LoadAndPlayAsync(HyPlayItem item, bool setAsPrimary = true, bool autoPlay = true, bool removeCurrentSongs = true)
+    public Task LoadAndPlayAsync(HyPlayItem item, bool setAsPrimary = true, bool autoPlay = true, bool removeCurrentSongs = true)
+        => LoadAndPlayAsync(item, setAsPrimary, autoPlay, removeCurrentSongs, TimeSpan.Zero);
+
+    public async Task LoadAndPlayAsync(HyPlayItem item, bool setAsPrimary, bool autoPlay, bool removeCurrentSongs, TimeSpan fadeIn)
     {
-        // 取消上一次加载
-        _mediaSourceCts?.Cancel();
-        _mediaSourceCts?.Dispose();
-        _mediaSourceCts = new CancellationTokenSource();
-        var ct = _mediaSourceCts.Token;
+        var isPreload = !setAsPrimary && !autoPlay && !removeCurrentSongs;
+        CancellationToken ct;
+        if (isPreload)
+        {
+            _preloadCts?.Cancel();
+            _preloadCts?.Dispose();
+            _preloadCts = new CancellationTokenSource();
+            ct = _preloadCts.Token;
+        }
+        else
+        {
+            WeakReferenceMessenger.Default.Send(new PlaybackLoadingMessage(true, item.Name, item.ArtistString));
+            // 取消上一次加载
+            _mediaSourceCts?.Cancel();
+            _mediaSourceCts?.Dispose();
+            _mediaSourceCts = new CancellationTokenSource();
+            _preloadCts?.Cancel();
+            ct = _mediaSourceCts.Token;
+        }
 
         try
         {
@@ -260,7 +324,8 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
             {
                 SetAsPrimarySource = setAsPrimary,
                 AutoPlay = autoPlay,
-                Volume = targetVolume
+                Volume = targetVolume,
+                FadeIn = fadeIn
             };
 
             await _player.ConnectPlaybackSourceAsync(playbackSource, options);
@@ -279,6 +344,10 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
             if (ct.IsCancellationRequested) return;
             _notification.ShowMessage("歌曲播放失败", $"{item.Name}: {ex.Message}");
             throw;
+        }
+        finally
+        {
+            if (!isPreload) WeakReferenceMessenger.Default.Send(new PlaybackLoadingMessage(false));
         }
     }
 
@@ -345,6 +414,7 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
             && agSource.PlaybackSource?.CustomProperties.TryGetValue("nowPlayingItem", out var obj) == true
             && obj is HyPlayItem item)
         {
+            if (!ReferenceEquals(_state.NowPlayingItem, item)) _state.NowPlayingItem = item;
             _state.Duration = agSource.PlaybackSource.Duration ?? TimeSpan.Zero;
             _lyricCts?.Cancel();
             _lyricCts?.Dispose();
@@ -352,7 +422,25 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
             _taskRunner.Forget(LoadLyricsSafeAsync(item, _lyricCts.Token), "load lyrics for primary source");
 
             _taskRunner.Forget(_playbackNotification.OnTrackChangedAsync(item), "update playback notification on track changed");
+            SchedulePrefetch(item);
         }
+    }
+
+    private void SchedulePrefetch(HyPlayItem current)
+    {
+        _prefetchCts?.Cancel();
+        _prefetchCts?.Dispose();
+        _prefetchCts = new CancellationTokenSource();
+        var ct = _prefetchCts.Token;
+        if (_setting.TransitionMode == "dir" || !_setting.enableCache) return;
+        _taskRunner.Forget(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(8), ct);
+            if (!ReferenceEquals(_state.NowPlayingItem, current)) return;
+            var next = GetPlaylistService()?.PeekNextItem();
+            if (next is null || ReferenceEquals(next, current)) return;
+            await _mediaSourceService.PrefetchAsync(next, ct);
+        }, "prefetch next track");
     }
 
     private async Task LoadLyricsSafeAsync(HyPlayItem item, CancellationToken ct)

@@ -77,7 +77,7 @@ public sealed partial class PlaylistService : IPlaylistService, IDisposable
         _activeStrategy = _strategies.GetValueOrDefault(strategyId)
                           ?? _strategies.GetValueOrDefault("seq")
                           ?? _strategies.Values.First();
-        var transitionId = _setting.CrossFade ? "xfd" : "dir";
+        var transitionId = _setting.TransitionMode;
         _activeTransition = _transitions.GetValueOrDefault(transitionId)
                             ?? _transitions.GetValueOrDefault("dir")
                             ?? _transitions.Values.First();
@@ -233,7 +233,10 @@ public sealed partial class PlaylistService : IPlaylistService, IDisposable
             return;
 
         if (userInitiated)
+        {
+            await FadeOutCurrentAsync();
             await _activeTransition.OnManualSkipAsync(BuildTransitionContext());
+        }
 
         var nextIndex = _activeStrategy.GetNext(BuildStrategyContext());
         if (nextIndex is null)
@@ -247,7 +250,8 @@ public sealed partial class PlaylistService : IPlaylistService, IDisposable
             item = _items[_nowPlayingIndex];
         }
 
-        await _control.LoadAndPlayAsync(item, removeCurrentSongs: true);
+        await _control.LoadAndPlayAsync(item, true, true, true, userInitiated ? ManualFadeIn : TimeSpan.Zero);
+        if (userInitiated) DisconnectStaleSources();
     }
 
     /// <inheritdoc />
@@ -256,6 +260,7 @@ public sealed partial class PlaylistService : IPlaylistService, IDisposable
         if (_items.Count == 0)
             return;
 
+        await FadeOutCurrentAsync();
         await _activeTransition.OnManualSkipAsync(BuildTransitionContext());
 
         var prevIndex = _activeStrategy.GetPrevious(BuildStrategyContext());
@@ -270,7 +275,8 @@ public sealed partial class PlaylistService : IPlaylistService, IDisposable
             item = _items[_nowPlayingIndex];
         }
 
-        await _control.LoadAndPlayAsync(item, removeCurrentSongs: true);
+        await _control.LoadAndPlayAsync(item, true, true, true, ManualFadeIn);
+        DisconnectStaleSources();
     }
 
     /// <inheritdoc />
@@ -285,6 +291,7 @@ public sealed partial class PlaylistService : IPlaylistService, IDisposable
             return;
 
         // 中断正在进行的过渡
+        await FadeOutCurrentAsync();
         await _activeTransition.OnManualSkipAsync(BuildTransitionContext());
 
         lock (_lock)
@@ -293,7 +300,8 @@ public sealed partial class PlaylistService : IPlaylistService, IDisposable
             SyncIndex();
         }
 
-        await _control.LoadAndPlayAsync(item, removeCurrentSongs: true);
+        await _control.LoadAndPlayAsync(item, true, true, true, ManualFadeIn);
+        DisconnectStaleSources();
     }
 
     // ────────────── 曲目结束处理 ──────────────
@@ -365,6 +373,46 @@ public sealed partial class PlaylistService : IPlaylistService, IDisposable
             return;
 
         _activeTransition.OnPositionTick(BuildTransitionContext(position, duration));
+    }
+
+    public void OnSeekRequested(TimeSpan target)
+    {
+        _activeTransition.OnSeek(BuildTransitionContext(), target);
+    }
+
+    public HyPlayItem? PeekNextItem()
+    {
+        if (!ShouldRunTransitionOnPositionTick()) return null;
+        var nextIndex = _activeStrategy.GetNext(BuildStrategyContext());
+        lock (_lock)
+        {
+            if (nextIndex is null || nextIndex.Value == _nowPlayingIndex || nextIndex.Value < 0 || nextIndex.Value >= _items.Count)
+                return null;
+            return _items[nextIndex.Value];
+        }
+    }
+
+    private TimeSpan ManualFadeIn => _setting.PlaybackFade ? TimeSpan.FromMilliseconds(250) : TimeSpan.Zero;
+
+    private void DisconnectStaleSources()
+    {
+        if (_player is not AudioGraphPlayer graph || graph.PrimaryPlaybackSource is not { } primary) return;
+        var removed = graph.DisconnectAllExcept(primary);
+        if (removed > 0) HyPlayer.Services.Playback.AutoMix.AutoMixLog.Write($"disconnected {removed} stale source(s) after manual skip");
+    }
+
+    private async Task FadeOutCurrentAsync()
+    {
+        if (!_setting.PlaybackFade || _player.PrimaryPlaybackSource is not { } current || _player.GlobalPlaybackStatus != PlaybackStatus.Playing)
+            return;
+        try
+        {
+            var fade = _player.RampPlaybackSourceVolumeAsync(current, 0, TimeSpan.FromMilliseconds(140));
+            await Task.WhenAny(fade, Task.Delay(400));
+        }
+        catch
+        {
+        }
     }
 
     private bool ShouldRunTransitionOnPositionTick()
@@ -663,10 +711,16 @@ public sealed partial class PlaylistService : IPlaylistService, IDisposable
         lock (_lock)
         {
             var index = _items.IndexOf(item);
+            if (index < 0) index = _items.FindIndex(i => i.ProviderId == item.ProviderId && i.Id == item.Id);
             if (index >= 0)
             {
                 _nowPlayingIndex = index;
                 SyncIndex();
+            }
+            else
+            {
+                _state.NowPlayingItem = item;
+                HyPlayer.Services.Playback.AutoMix.AutoMixLog.Write($"commit: {item.Name} not in playlist, now playing set directly");
             }
         }
 
