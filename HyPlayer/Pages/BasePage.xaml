@@ -9,6 +9,7 @@
     xmlns:frieren="using:Microsoft.Toolkit.Uwp.UI.Controls"
     xmlns:frierenUI="using:Microsoft.Toolkit.Uwp.UI"
     xmlns:local="using:HyPlayer"
+    xmlns:media="using:CommunityToolkit.WinUI.Media"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:ui="using:CommunityToolkit.WinUI"
@@ -33,6 +34,20 @@
         </ResourceDictionary>
     </Page.Resources>
     <Grid>
+        <Image
+            x:Name="CustomBackgroundImage"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            IsHitTestVisible="False"
+            Visibility="Collapsed" />
+        <Rectangle
+            x:Name="CustomBackgroundBlur"
+            IsHitTestVisible="False"
+            Visibility="Collapsed">
+            <Rectangle.Fill>
+                <media:BackdropBlurBrush x:Name="CustomBackgroundBlurBrush" Amount="0" />
+            </Rectangle.Fill>
+        </Rectangle>
         <Grid x:Name="MainGrid">
             <Grid.RowDefinitions>
                 <RowDefinition Height="48" />
@@ -217,6 +232,50 @@
                         Icon="List"
                         IsExpanded="True"
                         Visibility="Collapsed" />
+                    <muxc:NavigationViewItemSeparator />
+                    <muxc:NavigationViewItemHeader Margin="0,3,3,3" Content="播客" />
+                    <muxc:NavigationViewItem
+                        x:Name="NavItemPodcastLiked"
+                        x:FieldModifier="public"
+                        Content="点赞的单集"
+                        Tag="PodcastLiked"
+                        Visibility="Collapsed">
+                        <muxc:NavigationViewItem.Icon>
+                            <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE8E1;" />
+                        </muxc:NavigationViewItem.Icon>
+                    </muxc:NavigationViewItem>
+                    <muxc:NavigationViewItem
+                        x:Name="NavItemPodcastCollected"
+                        x:FieldModifier="public"
+                        Content="收藏的单集"
+                        Tag="PodcastCollected"
+                        Visibility="Collapsed">
+                        <muxc:NavigationViewItem.Icon>
+                            <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE734;" />
+                        </muxc:NavigationViewItem.Icon>
+                    </muxc:NavigationViewItem>
+                    <muxc:NavigationViewItem
+                        x:Name="NavItemsMyPodcasts"
+                        x:FieldModifier="public"
+                        Content="我创建的播客"
+                        IsExpanded="True"
+                        Tag="PodcastMyGroup"
+                        Visibility="Collapsed">
+                        <muxc:NavigationViewItem.Icon>
+                            <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE720;" />
+                        </muxc:NavigationViewItem.Icon>
+                    </muxc:NavigationViewItem>
+                    <muxc:NavigationViewItem
+                        x:Name="NavItemsSubPodcasts"
+                        x:FieldModifier="public"
+                        Content="我收藏的播客"
+                        IsExpanded="True"
+                        Tag="PodcastSubGroup"
+                        Visibility="Collapsed">
+                        <muxc:NavigationViewItem.Icon>
+                            <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xEC05;" />
+                        </muxc:NavigationViewItem.Icon>
+                    </muxc:NavigationViewItem>
                 </muxc:NavigationView.MenuItems>
                 <muxc:NavigationView.FooterMenuItems>
                     <muxc:NavigationViewItem

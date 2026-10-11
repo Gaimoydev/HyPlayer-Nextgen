@@ -56,6 +56,11 @@ namespace HyPlayer.Classes
             {
                 pageNavigationViewItem = (Ioc.Default.GetRequiredService<IUIStateService>().PageBase as BasePage).NavItemPageFavorite;
             }
+            else if (value is PodcastEpisodesPage podcastPage)
+            {
+                var basePage = (BasePage)Ioc.Default.GetRequiredService<IUIStateService>().PageBase;
+                pageNavigationViewItem = podcastPage.Kind == PodcastEpisodesPage.Collected ? basePage.NavItemPodcastCollected : basePage.NavItemPodcastLiked;
+            }
             else if (pageType == typeof(MusicCloudPage))
             {
                 pageNavigationViewItem = (Ioc.Default.GetRequiredService<IUIStateService>().PageBase as BasePage).NavItemMusicCloud;

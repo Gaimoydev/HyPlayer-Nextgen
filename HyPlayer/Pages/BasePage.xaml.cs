@@ -72,7 +72,9 @@ public sealed partial class BasePage : Page
         _player = Ioc.Default.GetRequiredService<AudioGraphPlayer>();
         InitializeComponent();
         BaseFrame.Navigated += (_, _) => MemoryReclaimer.Schedule();
+        Loaded += (_, _) => (Ioc.Default.GetRequiredService<IUIStateService>().PageMain as MainPage)?.UpdateHomePlaybar();
         Ioc.Default.GetRequiredService<IUIStateService>().PageBase = this;
+        SidebarLayout.Attach(NavMain);
         Ioc.Default.GetRequiredService<IUIStateService>().GlobalTip = TheTeachingTip;
 
         if (!_player.PlayerCreated)
@@ -87,12 +89,31 @@ public sealed partial class BasePage : Page
         BaseFrame.IsNavigationStackEnabled = !_setting.forceMemoryGarbage;
         Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
         Window.Current.CoreWindow.PointerPressed += CoreWindow_PointerPressed;
+        _setting.PropertyChanged += OnAppearanceSettingChanged;
+        AppearanceCustomizer.ApplyBackground(CustomBackgroundImage, CustomBackgroundBlur, CustomBackgroundBlurBrush);
+    }
+
+    private void OnAppearanceSettingChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(Setting.customUiFontFamily):
+                AppearanceCustomizer.ApplyFont();
+                break;
+            case nameof(Setting.backgroundImagePath):
+            case nameof(Setting.backgroundImageOpacity):
+            case nameof(Setting.backgroundImageBlur):
+            case nameof(Setting.backgroundImageStretch):
+                AppearanceCustomizer.ApplyBackground(CustomBackgroundImage, CustomBackgroundBlur, CustomBackgroundBlurBrush);
+                break;
+        }
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
         base.OnNavigatedFrom(e);
         WeakReferenceMessenger.Default.UnregisterAll(this);
+        _setting.PropertyChanged -= OnAppearanceSettingChanged;
         Window.Current.CoreWindow.KeyDown -= CoreWindow_KeyDown;
         Window.Current.CoreWindow.PointerPressed -= CoreWindow_PointerPressed;
         var uiState = Ioc.Default.GetRequiredService<IUIStateService>();
@@ -170,19 +191,50 @@ public sealed partial class BasePage : Page
         */
     }
 
+    private bool _autoLoginPending;
+
+    private void SetLoginPending(bool pending)
+    {
+        _autoLoginPending = pending;
+        if (_auth.IsLoggedIn) return;
+        if (pending)
+        {
+            NavItemLogin.Content = "正在登录…";
+            NavItemLogin.Icon = new FontIcon { Glyph = "\uE895" };
+            ToolTipService.SetToolTip(NavItemLogin, "正在连接至网易云，网络较慢时可能需要一些时间");
+        }
+        else
+        {
+            NavItemLogin.Content = "登录";
+            NavItemLogin.Icon = new SymbolIcon(Symbol.Contact);
+            ToolTipService.SetToolTip(NavItemLogin, null);
+        }
+    }
+
     private async Task LoadLoginData()
     {
         try
         {
             if (Setting.LoadCookies() || _api?.Option.AdditionalParameters.Cookies.Count is > 0)
             {
+                SetLoginPending(true);
+                var success = false;
                 try
                 {
-                    await LoginDone();
+                    success = await LoginDone();
                 }
                 catch
                 {
                     // ignored
+                }
+                finally
+                {
+                    SetLoginPending(false);
+                }
+                if (!success && !_auth.IsLoggedIn)
+                {
+                    InfoBarLoginHint.IsOpen = false;
+                    _notification.ShowMessage("自动登录未完成", "可能是网络较慢或登录已失效，点击侧边栏的「登录」可重试");
                 }
             }
             else
@@ -324,6 +376,7 @@ public sealed partial class BasePage : Page
         //加载我喜欢的歌
         _ = LoadMyLikelist();
         _ = LoadSongList();
+        _ = LoadPodcasts();
 
         // 执行签到操作
         // DoDailySign();
@@ -363,6 +416,37 @@ public sealed partial class BasePage : Page
         var likedSongs = ids?.TrackIds?.ToList() ?? [];
         auth.LikedSongs.Clear();
         auth.LikedSongs.AddRange(likedSongs);
+    }
+
+    public async Task LoadPodcasts()
+    {
+        NavItemPodcastLiked.Visibility = Visibility.Visible;
+        NavItemPodcastCollected.Visibility = Visibility.Visible;
+        await FillPodcastGroup(NavItemsMyPodcasts, PodcastListApi.CreatedVoiceLists);
+        await FillPodcastGroup(NavItemsSubPodcasts, PodcastListApi.SubscribedVoiceLists);
+    }
+
+    private async Task FillPodcastGroup(NavigationViewItem group, PodcastListApi contract)
+    {
+        try
+        {
+            var channels = await PodcastLibrary.GetChannelsAsync(contract);
+            group.MenuItems.Clear();
+            foreach (var channel in channels)
+            {
+                group.MenuItems.Add(new NavigationViewItem
+                {
+                    Content = channel.Name,
+                    Tag = "Podcast" + channel.Id,
+                    Icon = new FontIcon { Glyph = "\uE720" }
+                });
+            }
+            group.Visibility = channels.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        catch
+        {
+            group.Visibility = Visibility.Collapsed;
+        }
     }
 
     public async Task LoadSongList()
@@ -439,6 +523,12 @@ public sealed partial class BasePage : Page
             NavMain.IsBackEnabled = true;
         if (nowitem.Tag is null) return;
 
+        if (nowitem.Tag.ToString() == "PageMe" && !_auth.IsLoggedIn && _autoLoginPending)
+        {
+            _notification.ShowMessage("正在登录", "正在连接至网易云，请稍候");
+            return;
+        }
+
         if (nowitem.Tag.ToString() == "PageMe" && !_auth.IsLoggedIn)
         {
             _api?.Option.Cookies.Clear();//清一遍Cookie防止出错
@@ -474,6 +564,9 @@ public sealed partial class BasePage : Page
         if (nowitem.Tag.ToString().StartsWith("Playlist"))
             _navigation.Navigate(typeof(SongListDetail), nowitem.Tag.ToString()[8..]);
 
+        if (nowitem.Tag.ToString().StartsWith("Podcast") && nowitem.Tag.ToString()[7..].All(char.IsDigit))
+            _navigation.Navigate(typeof(RadioPage), nowitem.Tag.ToString()[7..]);
+
         switch (nowitem.Tag.ToString())
         {
             case "PageMe":
@@ -496,6 +589,12 @@ public sealed partial class BasePage : Page
                 break;
             case "PageFavorite":
                 _navigation.Navigate(typeof(PageFavorite), null);
+                break;
+            case "PodcastLiked":
+                _navigation.Navigate(typeof(PodcastEpisodesPage), PodcastEpisodesPage.Liked);
+                break;
+            case "PodcastCollected":
+                _navigation.Navigate(typeof(PodcastEpisodesPage), PodcastEpisodesPage.Collected);
                 break;
         }
     }
@@ -708,6 +807,19 @@ public sealed partial class BasePage : Page
     private void TheTeachingTip_OnCloseButtonClick(TeachingTip sender, object args)
     {
         Ioc.Default.GetRequiredService<IUIStateService>().TeachingTipList.Clear();
+    }
+
+
+    internal bool FocusSearch() => SearchAutoSuggestBox.Focus(FocusState.Programmatic);
+
+    internal void SetPlaybarNavSpaceVisible(bool visible)
+    {
+        var target = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (NavItemBlank.Visibility == target) return;
+        NavItemBlank.Visibility = target;
+        var relayout = new NavigationViewItem { Visibility = Visibility.Collapsed, IsEnabled = false };
+        NavMain.FooterMenuItems.Add(relayout);
+        NavMain.FooterMenuItems.Remove(relayout);
     }
 
 
