@@ -118,6 +118,57 @@ public sealed partial class SongsList : UserControl
         }
     }
 
+    public static readonly DependencyProperty IsLoadingProperty = DependencyProperty.Register(
+        nameof(IsLoading), typeof(bool), typeof(SongsList),
+        new PropertyMetadata(false, (d, _) => ((SongsList)d).UpdateLoadingState()));
+
+    public static readonly DependencyProperty LoadingTextProperty = DependencyProperty.Register(
+        nameof(LoadingText), typeof(string), typeof(SongsList),
+        new PropertyMetadata("正在加载歌曲…", (d, _) => ((SongsList)d).UpdateLoadingState()));
+
+    public bool IsLoading
+    {
+        get => (bool)GetValue(IsLoadingProperty);
+        set => SetValue(IsLoadingProperty, value);
+    }
+
+    public string LoadingText
+    {
+        get => (string)GetValue(LoadingTextProperty);
+        set => SetValue(LoadingTextProperty, value);
+    }
+
+    private void UpdateLoadingState()
+    {
+        if (LoadingPanel == null) return;
+        var loading = IsLoading;
+        var count = Songs?.Count ?? 0;
+        LoadingTextBlock.Text = count > 0 && loading ? $"已加载 {count} 首，正在继续加载…" : LoadingText;
+        LoadingRing.IsActive = loading;
+        LoadingPanel.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+        if (loading) PositionLoadingPanel();
+    }
+
+    private void PositionLoadingPanel()
+    {
+        if (LoadingPanel.Visibility != Visibility.Visible || ActualHeight <= 0) return;
+        double headerBottom = 0;
+        try
+        {
+            if (HeaderPanel.ActualHeight > 0)
+                headerBottom = HeaderPanel.TransformToVisual(this).TransformPoint(new Point(0, HeaderPanel.ActualHeight)).Y;
+        }
+        catch
+        {
+        }
+        var top = Math.Clamp(headerBottom, 0, ActualHeight);
+        var bottomReserve = Math.Min(130, ActualHeight * 0.15);
+        var available = Math.Max(0, ActualHeight - top - bottomReserve);
+        var panelHeight = LoadingPanel.ActualHeight > 0 ? LoadingPanel.ActualHeight : 80;
+        var offset = top + (available - panelHeight) / 2 - (ActualHeight - panelHeight) / 2;
+        LoadingPanel.RenderTransform = new TranslateTransform { Y = available > panelHeight ? offset : 0 };
+    }
+
     public UIElement ListHeader
     {
         get => (UIElement)GetValue(ListHeaderProperty);
@@ -217,6 +268,7 @@ public sealed partial class SongsList : UserControl
 
     private void Songs_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
     {
+        if (IsLoading) UpdateLoadingState();
         if (e.NewItems != null)
         {
             if (VisibleSongs.Count == 0 || _pendingSongsFlushScheduled)
@@ -455,7 +507,16 @@ public sealed partial class SongsList : UserControl
     private void SongListRoot_Loaded(object sender, RoutedEventArgs e)
     {
         MultiSelect = false;
+        HeaderPanel.SizeChanged -= OnLoadingLayoutChanged;
+        HeaderPanel.SizeChanged += OnLoadingLayoutChanged;
+        SizeChanged -= OnLoadingLayoutChanged;
+        SizeChanged += OnLoadingLayoutChanged;
+        LoadingPanel.SizeChanged -= OnLoadingLayoutChanged;
+        LoadingPanel.SizeChanged += OnLoadingLayoutChanged;
+        UpdateLoadingState();
     }
+
+    private void OnLoadingLayoutChanged(object sender, SizeChangedEventArgs e) => PositionLoadingPanel();
 
     private NCSong? _queuedClick;
 
@@ -486,6 +547,13 @@ public sealed partial class SongsList : UserControl
         WeakReferenceMessenger.Default.Send(new PlaybackLoadingMessage(true, ncSong.SongName, ncSong.ArtistString));
         try
         {
+            if (!string.IsNullOrEmpty(ListSource) && ListSource != "Content" && _playlist.PlaySourceId == ListSource &&
+                _playlist.Items.FirstOrDefault(t => t?.Id == ncSong.SongId) is { } existingItem)
+            {
+                if (!shiftSong) await _playlist.MoveToAsync(existingItem);
+                return;
+            }
+
             if (!string.IsNullOrEmpty(ListSource) && ListSource != "Content" && Songs.Count == VisibleSongs.Count)
             {
                 if (_playlist.PlaySourceId != ListSource ||
@@ -514,7 +582,7 @@ public sealed partial class SongsList : UserControl
                 _playlist.PlaySourceId = "Content";
             }
 
-            if (ListSource != null && (ListSource.StartsWith("pl") || ListSource.StartsWith("al")))
+            if (!string.IsNullOrEmpty(ListSource))
                 _playlist.PlaySourceId = ListSource;
 
             if (!shiftSong)

@@ -84,6 +84,9 @@ namespace HyPlayer.ViewModels
 
         public async Task LoadPageData(string PlaylistId, bool loadPlaylist = false)
         {
+            IsLoading = true;
+            if (!string.IsNullOrEmpty(PlaylistId) && PlayList?.IsDailyRecommend != true)
+                SourceId = $"pl{PlaylistId}";
             if (loadPlaylist)
             {
                 var rst = await SimpleCacher.GetOrCreateCacheAsync(CacheType.PlaylistDetail, PlaylistId, async () =>
@@ -106,6 +109,11 @@ namespace HyPlayer.ViewModels
 
                 PlayList = rst?.Playlists?.FirstOrDefault().MapToNCPlayList();
             }
+            if (PlayList is null)
+            {
+                IsLoading = false;
+                return;
+            }
             DescriptionBoxContent = PlayList.Description;
             ResourceId = "pl" + PlayList?.PlaylistId;
             if (_setting.noImage)
@@ -124,20 +132,26 @@ namespace HyPlayer.ViewModels
         public async Task LoadSongListItem()
         {
             IsLoading = true;
-            if (!PlayList.IsDailyRecommend)
+            try
             {
-                await LoadPlayListItems();
-                await LoadCurrentPage();
+                if (!PlayList.IsDailyRecommend)
+                {
+                    await LoadPlayListItems();
+                    await LoadCurrentPage();
+                }
+                else
+                {
+                    IntelligenceModeVisible = false;
+                    await LoadDailyRcmdItems();
+                }
+                if (_setting.greedlyLoadPlayContainerItems)
+                    // Use WeakReferenceMessenger for second-timer driven greedy loading
+                    WeakReferenceMessenger.Default.Register<GlobalSecondTimerMessage>(this, (r, _) => ((SongListViewModel)r).GreedlyLoad());
             }
-            else
+            finally
             {
-                IntelligenceModeVisible = false;
-                await LoadDailyRcmdItems();
+                IsLoading = false;
             }
-            if (_setting.greedlyLoadPlayContainerItems)
-                // Use WeakReferenceMessenger for second-timer driven greedy loading
-                WeakReferenceMessenger.Default.Register<GlobalSecondTimerMessage>(this, (r, _) => ((SongListViewModel)r).GreedlyLoad());
-            IsLoading = false;
         }
 
         public async Task LoadDailyRcmdItems()
@@ -245,10 +259,7 @@ namespace HyPlayer.ViewModels
                 ncSong.Order = idx++;
                 Songs.Add(ncSong);
             }
-            if (_songListIds.Count < Songs.Count)
-            {
-                HasMore = true;
-            }
+            HasMore = Songs.Count < _songListIds.Count;
         }
 
         public async Task LoadAlbumImage()
@@ -275,6 +286,7 @@ namespace HyPlayer.ViewModels
         {
             if (HasMore && _greedyLoadTreashold-- <= 0)
             {
+                CurrentPage++;
                 LoadCurrentPage()?.SafeFireAndForget();
                 _greedyLoadTreashold = 3;
             }
