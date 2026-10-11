@@ -244,9 +244,14 @@ namespace HyPlayer.LyricRenderer.LyricLineRenderers
 
                         }
 
+                        ICanvasImage lineImage = cl;
+                        if (IsSyllable && _emphasisGroups.Count > 0)
+                            lineImage = SyllableEmphasis.Apply(targetDrawingSession, cl, actualTop, currentTime, _emphasisGroups,
+                                _cachedLyricFontSize, _cachedFocusingColor, resource => Track(resource));
+
                         if (focusAmount > 0.001f && context.Effects.FocusHighlighting)
                         {
-                            var highlightEffectBuilder = new CanvasImageBuilder(cl, resources);
+                            var highlightEffectBuilder = new CanvasImageBuilder(lineImage, resources);
                             //画发光效果
                             highlightEffectBuilder
                                 .AddShadowEffect(6,
@@ -255,7 +260,7 @@ namespace HyPlayer.LyricRenderer.LyricLineRenderers
                             targetDrawingSession.DrawImage(highlightEffectBuilder.Build(), actualOffsetX, 0);
                         }
 
-                        targetDrawingSession.DrawImage(cl, actualOffsetX, 0);
+                        targetDrawingSession.DrawImage(lineImage, actualOffsetX, 0);
                     }
 
                     content = totalCommand;
@@ -602,6 +607,7 @@ namespace HyPlayer.LyricRenderer.LyricLineRenderers
         }
 
         private readonly List<Rect[]> _syllableBound = [];
+        private List<SyllableEmphasis.Group> _emphasisGroups = [];
         private Rect[] _expandedBound = [];
         private float _drawingOffsetY;
         private bool _isInitialized = false;
@@ -787,6 +793,7 @@ namespace HyPlayer.LyricRenderer.LyricLineRenderers
                 if (IsSyllable)
                 {
                     _syllableBound.Clear();
+                    _lastSyllableIndex = -1;
                     var alreadyLetterCount = 0;
                     foreach (var syllable in Syllables ?? [])
                     {
@@ -803,9 +810,11 @@ namespace HyPlayer.LyricRenderer.LyricLineRenderers
                     }
 
                     _expandedBound = [.. _syllableBound.SelectMany(t => t)];
+                    _emphasisGroups = SyllableEmphasis.Build(textLayout, Syllables ?? [], _renderStartX, _liftAmount);
                 }
                 else
                 {
+                    _emphasisGroups = [];
                     _expandedBound = [.. textLayout.GetCharacterRegions(0, _text.Length).Select(t => new Rect(t.LayoutBounds.X - _renderStartX + 16, t.LayoutBounds.Y, t.LayoutBounds.Width, t.LayoutBounds.Height))];
                 }
             }
