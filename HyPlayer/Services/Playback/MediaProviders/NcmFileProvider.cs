@@ -85,8 +85,8 @@ public sealed class NcmFileProvider : IMediaSourceProvider
         if (item.PlayItem?.NcmPlayableStream == null)
             return null;
 
-        return MediaSource.CreateFromStream(
-            item.PlayItem.NcmPlayableStream,
-            item.PlayItem.NcmPlayableStreamMIMEType);
+        var playable = item.PlayItem.NcmPlayableStream;
+        var mime = item.PlayItem.NcmPlayableStreamMIMEType;
+        return await RechunkedAudioSource.FromStreamAsync(playable, () => MediaSource.CreateFromStream(playable, mime));
     }
 }

@@ -64,6 +64,8 @@ public sealed class LocalFileProvider : IMediaSourceProvider
         }
         item.PlayItem ??= new PlayItem();
         item.PlayItem.CoverBuffer = tagFile.Tag.Pictures.FirstOrDefault()?.Data?.Data?.AsBuffer();
-        return MediaSource.CreateFromStorageFile(file);
+        return string.Equals(file.FileType, ".flac", System.StringComparison.OrdinalIgnoreCase)
+            ? await RechunkedAudioSource.FromFileAsync(file)
+            : MediaSource.CreateFromStorageFile(file);
     }
 }
