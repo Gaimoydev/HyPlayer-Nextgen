@@ -50,6 +50,19 @@ public sealed partial class MusicCloudPage : Page
 
     public async Task LoadMusicCloudItem()
     {
+        SongContainer.IsLoading = true;
+        try
+        {
+            await LoadMusicCloudItemCore();
+        }
+        finally
+        {
+            SongContainer.IsLoading = false;
+        }
+    }
+
+    private async Task LoadMusicCloudItemCore()
+    {
         _cancellationToken.ThrowIfCancellationRequested();
         var jv = await SimpleCacher.GetOrCreateCacheAsync(CacheType.Login, "userCloud_" + page, async () =>
         {

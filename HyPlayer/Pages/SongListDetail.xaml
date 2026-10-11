@@ -39,19 +39,12 @@
             <RowDefinition />
             <RowDefinition Height="175" />
         </Grid.RowDefinitions>
-        <controls2:ProgressRing
-            Grid.Row="0"
-            Width="100"
-            Height="100"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center"
-            IsActive="True"
-            Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}" />
         <controls1:SongsList
             x:Name="SongsList"
             Grid.RowSpan="2"
             CanViewComments="True"
             IsMySongList="{x:Bind ViewModel.IsMySongList, Mode=OneWay}"
+            IsLoading="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
             IsSearchEnabled="True"
             ListSource="{x:Bind ViewModel.SourceId, Mode=OneWay}"
             Songs="{x:Bind ViewModel.Songs, Mode=OneWay}">
@@ -228,7 +221,7 @@
                     Command="{x:Bind ViewModel.NextPageCommand}"
                     Content="加载更多"
                     Style="{StaticResource ButtonRevealStyle}"
-                    Visibility="{x:Bind ViewModel.HasMore}" />
+                    Visibility="{x:Bind ViewModel.HasMore, Mode=OneWay}" />
             </controls1:SongsList.Footer>
         </controls1:SongsList>
         <VisualStateManager.VisualStateGroups>

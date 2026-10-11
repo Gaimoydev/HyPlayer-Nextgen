@@ -77,14 +77,22 @@ public sealed partial class History : Page
         {
             case "SongHis":
                 Songs.Clear();
-                var Songsl = await HistoryManagement.GetNCSongHistory();
-                var songorder = 0;
-                foreach (var song in Songsl)
+                SongsList.IsLoading = true;
+                try
                 {
-                    song.Order = songorder++;
-                    Songs.Add(song);
+                    var Songsl = await HistoryManagement.GetNCSongHistory();
+                    var songorder = 0;
+                    foreach (var song in Songsl)
+                    {
+                        song.Order = songorder++;
+                        Songs.Add(song);
+                    }
+                    Songsl.Clear();
                 }
-                Songsl.Clear();
+                finally
+                {
+                    SongsList.IsLoading = false;
+                }
                 break;
             case "SongRankWeek":
                 //听歌排行加载部分 - 优先级靠下
@@ -121,6 +129,7 @@ public sealed partial class History : Page
     {
         Songs.Clear();
         _cancellationToken.ThrowIfCancellationRequested();
+        SongsList.IsLoading = true;
         try
         {
             var result = await requestRank(_cancellationToken);
@@ -141,6 +150,10 @@ public sealed partial class History : Page
         catch (Exception ex) when (!(ex is TaskCanceledException or OperationCanceledException))
         {
             _notification.ShowMessage("获取播放记录失败", ex.Message);
+        }
+        finally
+        {
+            SongsList.IsLoading = false;
         }
     }
 }

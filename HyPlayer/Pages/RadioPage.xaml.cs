@@ -72,6 +72,19 @@ public sealed partial class RadioPage : Page
 
     private async Task LoadProgram()
     {
+        SongContainer.IsLoading = true;
+        try
+        {
+            await LoadProgramCore();
+        }
+        finally
+        {
+            SongContainer.IsLoading = false;
+        }
+    }
+
+    private async Task LoadProgramCore()
+    {
         _cancellationToken.ThrowIfCancellationRequested();
         var json = await SimpleCacher.GetOrCreateCacheAsync(CacheType.RadioPrograms, Radio.Id + "_" + page + asc,
                 async () =>
@@ -115,6 +128,7 @@ public sealed partial class RadioPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        SongContainer.IsLoading = true;
         if (e.Parameter is string rid)
         {
             var json1 = await SimpleCacher.GetOrCreateCacheAsync(CacheType.RadioInfo, rid, async () =>
@@ -130,10 +144,20 @@ public sealed partial class RadioPage : Page
                 return json.Value;
             });
 
+            if (json1?.RadioData is null)
+            {
+                SongContainer.IsLoading = false;
+                return;
+            }
             Radio = json1.RadioData.MapToNCRadio();
         }
 
         if (e.Parameter is NCRadio radio) Radio = radio;
+        if (Radio is null)
+        {
+            SongContainer.IsLoading = false;
+            return;
+        }
 
         TextBoxRadioName.Text = Radio.Name;
         TextBoxDJ.Content = Radio.DJ.Name;
