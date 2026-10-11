@@ -156,6 +156,7 @@ internal sealed partial class DownloadObject(NCSong song) : INotifyPropertyChang
                 await DownloadLyric().ConfigureAwait(false);
             if (Ioc.Default.GetRequiredService<Setting>().writedownloadFileInfo)
                 await WriteInfoToFile().ConfigureAwait(false);
+            await DownloadedTrackIndex.RecordAsync(ncsong.SongId, ResultFile).ConfigureAwait(false);
             DownloadManager.WritingTasks.RemoveAll(t => t.IsCompleted);
             Status = DownloadStatus.Finished;
         }));

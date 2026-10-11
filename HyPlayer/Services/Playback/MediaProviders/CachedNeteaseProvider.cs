@@ -66,12 +66,28 @@ public sealed class CachedNeteaseProvider : IMediaSourceProvider, IMediaPrefetch
     {
         ct.ThrowIfCancellationRequested();
 
-        var (playUrl, _) = await GetPlayUrlAsync(item, ct);
+        if (await DownloadedTrackIndex.TryGetAsync(item.Id) is { } downloaded)
+        {
+            item.SubExt = downloaded.FileType.TrimStart('.').ToLowerInvariant();
+            return await CreateFromFileAsync(item, downloaded);
+        }
+
+        string? playUrl;
+        try
+        {
+            (playUrl, _) = await GetPlayUrlAsync(item, ct);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            if (await FindAnyCacheFileAsync(item) is { } offlineFile)
+                return await CreateFromFileAsync(item, offlineFile);
+            throw;
+        }
 
         if (_downloadOperations.TryGetValue(item.Id, out var pendingOperation))
         {
             return pendingOperation.IsRandomAccessRequired || playUrl == null
-                ? MediaSource.CreateFromDownloadOperation(pendingOperation)
+                ? await CreateFromDownloadAsync(item, pendingOperation)
                 : MediaSource.CreateFromUri(new Uri(playUrl));
         }
 
@@ -79,7 +95,7 @@ public sealed class CachedNeteaseProvider : IMediaSourceProvider, IMediaPrefetch
         var cacheFile = await GetCacheFileAsync(item, ct);
         if (cacheFile != null)
         {
-            return MediaSource.CreateFromStorageFile(cacheFile);
+            return await CreateFromFileAsync(item, cacheFile);
         }
 
         if (playUrl == null)
@@ -102,7 +118,7 @@ public sealed class CachedNeteaseProvider : IMediaSourceProvider, IMediaPrefetch
 
         if ((string.IsNullOrEmpty(item.Url) || _setting.songUrlLazyGet) && item.Id != "-1")
         {
-            var songResult = await RetryPolicies.UrlFetchPolicy.ExecuteAsync(async () =>
+            var songResult = await RetryPolicies.UrlFetch.ExecuteAsync(async () =>
             {
                 var result = await SimpleCacher.GetOrCreateCacheAsync(
                     CacheType.SongUrl,
@@ -188,6 +204,35 @@ public sealed class CachedNeteaseProvider : IMediaSourceProvider, IMediaPrefetch
         }
     }
 
+    private static bool IsFlac(HyPlayItem item) => string.Equals(item.SubExt, "flac", StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<MediaSource> CreateFromFileAsync(HyPlayItem item, StorageFile file) =>
+        IsFlac(item) ? await RechunkedAudioSource.FromFileAsync(file) : MediaSource.CreateFromStorageFile(file);
+
+    private static async Task<MediaSource> CreateFromDownloadAsync(HyPlayItem item, DownloadOperation operation) =>
+        IsFlac(item) ? await RechunkedAudioSource.FromDownloadAsync(operation) : MediaSource.CreateFromDownloadOperation(operation);
+
+    private async Task<StorageFile?> FindAnyCacheFileAsync(HyPlayItem item)
+    {
+        try
+        {
+            if (_downloadOperations.ContainsKey(item.Id)) return null;
+            var cacheFolder = await StorageFolder.GetFolderFromPathAsync(_setting.cacheDir);
+            foreach (var extension in new[] { item.SubExt, "flac", "mp3", "m4a", "ogg" })
+            {
+                if (string.IsNullOrEmpty(extension)) continue;
+                if (await cacheFolder.TryGetItemAsync(string.Format(CacheFileNameFormat, item.Id, extension)) is not StorageFile file) continue;
+                if ((await file.GetBasicPropertiesAsync()).Size == 0) continue;
+                item.SubExt = extension;
+                return file;
+            }
+        }
+        catch
+        {
+        }
+        return null;
+    }
+
     /// <summary>
     /// 检查缓存文件是否存在且大小匹配
     /// </summary>
@@ -243,7 +288,7 @@ public sealed class CachedNeteaseProvider : IMediaSourceProvider, IMediaPrefetch
         // 检查是否已存在下载操作
         if (_downloadOperations.TryGetValue(item.Id, out var existingOperation))
         {
-            return MediaSource.CreateFromDownloadOperation(existingOperation);
+            return await CreateFromDownloadAsync(item, existingOperation);
         }
 
         var headerIsValid = await SupportsRandomAccessAsync(playUrl, ct);
@@ -271,7 +316,7 @@ public sealed class CachedNeteaseProvider : IMediaSourceProvider, IMediaPrefetch
         }, "download and cache NetEase media");
 
         return headerIsValid
-            ? MediaSource.CreateFromDownloadOperation(operation)
+            ? await CreateFromDownloadAsync(item, operation)
             : MediaSource.CreateFromUri(new Uri(playUrl));
     }
 }

@@ -45,6 +45,14 @@ public sealed class NeteaseStreamingProvider : IMediaSourceProvider
     {
         ct.ThrowIfCancellationRequested();
 
+        if (await HyPlayer.Classes.DownloadedTrackIndex.TryGetAsync(item.Id) is { } downloaded)
+        {
+            item.SubExt = downloaded.FileType.TrimStart('.').ToLowerInvariant();
+            return string.Equals(item.SubExt, "flac", StringComparison.OrdinalIgnoreCase)
+                ? await RechunkedAudioSource.FromFileAsync(downloaded)
+                : MediaSource.CreateFromStorageFile(downloaded);
+        }
+
         var (playUrl, _) = await GetPlayUrlAsync(item, ct);
         if (playUrl == null)
             return null;
@@ -62,7 +70,7 @@ public sealed class NeteaseStreamingProvider : IMediaSourceProvider
 
         if ((string.IsNullOrEmpty(item.Url) || _setting.songUrlLazyGet) && item.Id != "-1")
         {
-            var songResult = await RetryPolicies.UrlFetchPolicy.ExecuteAsync(async () =>
+            var songResult = await RetryPolicies.UrlFetch.ExecuteAsync(async () =>
             {
                 var result = await SimpleCacher.GetOrCreateCacheAsync(
                     CacheType.SongUrl,
