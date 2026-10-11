@@ -13,6 +13,7 @@ internal sealed class NextTrackPreloader : IDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
     private volatile bool _busy;
     private int _generation;
+    private DateTime _retryAfter = DateTime.MinValue;
 
     public HyPlayItem? Item { get; private set; }
     public AudioGraphPlaybackSource? Source { get; private set; }
@@ -21,7 +22,7 @@ internal sealed class NextTrackPreloader : IDisposable
 
     public void TryPreload(TrackTransitionContext ctx, TimeSpan leadTime)
     {
-        if (_busy || IsReady || ctx.CurrentItem is null) return;
+        if (_busy || IsReady || ctx.CurrentItem is null || DateTime.UtcNow < _retryAfter) return;
         var remaining = ctx.Duration - ctx.Position;
         if (ctx.Duration <= TimeSpan.FromSeconds(10) || remaining > leadTime) return;
         ctx.TaskRunner.Forget(PreloadAsync(ctx), "preload next track");
@@ -54,6 +55,7 @@ internal sealed class NextTrackPreloader : IDisposable
         }
         catch
         {
+            _retryAfter = DateTime.UtcNow.AddSeconds(8);
         }
         finally
         {

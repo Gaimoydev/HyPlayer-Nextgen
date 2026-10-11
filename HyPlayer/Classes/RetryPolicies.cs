@@ -106,6 +106,19 @@ namespace HyPlayer.Classes
         /// URL 获取重试策略
         /// 适用于歌曲 URL 获取和 API 调用
         /// </summary>
+        public static AsyncRetryPolicy UrlFetch => ResourceSaver.RelaxedNetwork ? RelaxedUrlFetchPolicy : UrlFetchPolicy;
+
+        public static AsyncRetryPolicy RelaxedUrlFetchPolicy { get; } = Policy
+            .Handle<Exception>(ex =>
+                ex is System.Net.Http.HttpRequestException ||
+                ex is TaskCanceledException ||
+                ex is TimeoutException ||
+                ex.Message.Contains("下载链接获取失败") ||
+                ex.Message.Contains("API 请求失败"))
+            .WaitAndRetryAsync(
+                retryCount: 6,
+                sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(Math.Min(6000, 500 * Math.Pow(2, attempt - 1))));
+
         public static AsyncRetryPolicy UrlFetchPolicy { get; } = Policy
             .Handle<Exception>(ex =>
                 ex is System.Net.Http.HttpRequestException ||

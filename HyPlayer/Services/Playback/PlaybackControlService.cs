@@ -10,6 +10,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Media;
+using Windows.Media.Core;
 using Windows.Media.Playback;
 
 namespace HyPlayer.Services.Playback;
@@ -45,6 +46,9 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
     private readonly SemaphoreSlim _seekerLock = new(1, 1);
     private CancellationTokenSource? _mediaSourceCts;
     private CancellationTokenSource? _preloadCts;
+    private HyPlayItem? _stalledItem;
+    private static readonly TimeSpan PrimaryLoadTimeout = TimeSpan.FromSeconds(25);
+    private static readonly TimeSpan PreloadTimeout = TimeSpan.FromSeconds(30);
     private CancellationTokenSource? _prefetchCts;
     private CancellationTokenSource? _lyricCts;
     private bool _disposed;
@@ -101,9 +105,12 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
     }
 
     /// <inheritdoc />
-    public async Task InitializeAsync()
+    private Task? _initializeTask;
+
+    public Task InitializeAsync() => _initializeTask ??= InitializeCoreAsync();
+
+    private async Task InitializeCoreAsync()
     {
-        if (_initialized) return;
         _initialized = true;
 
         if (!(_player is AudioGraphPlayer agp && agp.PlayerCreated))
@@ -214,6 +221,12 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
     /// <inheritdoc />
     public void Play()
     {
+        if (_player.PrimaryPlaybackSource is null && (_stalledItem ?? _state.NowPlayingItem) is { } retry)
+        {
+            _stalledItem = null;
+            _taskRunner.Forget(LoadAndPlayAsync(retry), "retry stalled track");
+            return;
+        }
         _player.PlayAll(_setting.PlaybackFade ? TimeSpan.FromMilliseconds(220) : TimeSpan.Zero);
         if (_player.PrimaryPlaybackSource is { } primary && primary.PlaybackStatus is not PlaybackStatus.Playing)
         {
@@ -292,8 +305,13 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
             ct = _mediaSourceCts.Token;
         }
 
+        Task<MediaSource?>? createTask = null;
+        Task? connectTask = null;
+        AudioGraphPlaybackSource? pendingSource = null;
+        var timeout = ResourceSaver.RelaxedNetwork ? TimeSpan.FromSeconds(60) : isPreload ? PreloadTimeout : PrimaryLoadTimeout;
         try
         {
+            if (!isPreload) _stalledItem = null;
             if (removeCurrentSongs)
             {
                 var oldItem = _state.NowPlayingItem;
@@ -304,7 +322,9 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
             item.PlayItem?.Dispose();
             item.PlayItem = null;
 
-            var mediaSource = await _mediaSourceService.CreateMediaSourceAsync(item, ct);
+            var started = DateTime.UtcNow;
+            createTask = _mediaSourceService.CreateMediaSourceAsync(item, ct);
+            var mediaSource = await createTask.WaitAsync(timeout, ct);
             if (mediaSource is null)
             {
                 if (!ct.IsCancellationRequested)
@@ -317,6 +337,7 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
             mediaSource.CustomProperties["nowPlayingItem"] = item;
 
             var playbackSource = new AudioGraphPlaybackSource(mediaSource);
+            pendingSource = playbackSource;
             item.PlayItem.AudioGraphPlaybackSource = playbackSource;
 
             var targetVolume = _setting.EnableAudioGain ? (item.Volume ?? 1d) : 1d;
@@ -325,14 +346,46 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
                 SetAsPrimarySource = setAsPrimary,
                 AutoPlay = autoPlay,
                 Volume = targetVolume,
-                FadeIn = fadeIn
+                FadeIn = fadeIn,
+                Speed = _state.PlaybackSpeed,
+                PreservePitch = !_setting.speedChangesPitch
             };
 
-            await _player.ConnectPlaybackSourceAsync(playbackSource, options);
+            var remaining = timeout - (DateTime.UtcNow - started);
+            if (remaining < TimeSpan.FromSeconds(5)) remaining = TimeSpan.FromSeconds(5);
+            connectTask = _player.ConnectPlaybackSourceAsync(playbackSource, options);
+            await connectTask.WaitAsync(remaining, ct);
+            pendingSource = null;
+            ResourceSaver.ReportLoad(item, DateTime.UtcNow - started);
+            if (autoPlay && !_state.IsPlaying)
+            {
+                _taskRunner.Forget(_notification.InvokeOnUIThread(() =>
+                {
+                    _state.IsPlaying = true;
+                    WeakReferenceMessenger.Default.Send(new PlaybackStateChangedMessage(true));
+                }), "sync playing state after autoplay");
+            }
+        }
+        catch (TimeoutException)
+        {
+            AbandonSlowLoad(item, createTask, connectTask, pendingSource);
+            if (!isPreload && !ct.IsCancellationRequested)
+            {
+                _stalledItem = item;
+                _taskRunner.Forget(_notification.InvokeOnUIThread(() =>
+                {
+                    _state.IsPlaying = false;
+                    WeakReferenceMessenger.Default.Send(new PlaybackStateChangedMessage(false));
+                }), "sync paused state after load timeout");
+                _notification.ShowMessage("加载超时", $"网络较慢，{item.Name} 未能在 {timeout.TotalSeconds:0} 秒内加载完成。点击播放可重试，或切换到下一首");
+            }
+            ResourceSaver.ReportTimeout();
+            if (isPreload) throw;
         }
         catch (OperationCanceledException)
         {
-            // 加载被取消，静默忽略
+            if (connectTask is not null || createTask is { IsCompleted: false })
+                AbandonSlowLoad(item, createTask, connectTask, pendingSource);
         }
         catch (Exception ex)
         {
@@ -351,6 +404,34 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
         }
     }
 
+    private void AbandonSlowLoad(HyPlayItem item, Task<MediaSource?>? createTask, Task? connectTask, AudioGraphPlaybackSource? pendingSource)
+    {
+        if (pendingSource is not null && ReferenceEquals(item.PlayItem?.AudioGraphPlaybackSource, pendingSource))
+            item.PlayItem!.AudioGraphPlaybackSource = null;
+
+        if (connectTask is not null && pendingSource is not null)
+        {
+            connectTask.ContinueWith(_ =>
+            {
+                try
+                {
+                    _player.DisconnectPlaybackSource(pendingSource);
+                }
+                catch
+                {
+                }
+                pendingSource.Dispose();
+            }, TaskScheduler.Default);
+            return;
+        }
+
+        pendingSource?.Dispose();
+        createTask?.ContinueWith(t =>
+        {
+            if (t.Status == TaskStatus.RanToCompletion) t.Result?.Dispose();
+        }, TaskScheduler.Default);
+    }
+
     /// <inheritdoc />
     public void CheckABTimeRemaining(TimeSpan position)
     {
@@ -366,9 +447,23 @@ public sealed partial class PlaybackControlService : IPlaybackControlService, ID
     /// <summary>
     /// 播放位置更新回调
     /// </summary>
+    private DateTime _lastResumeSave;
+
+    public void SaveResumePoint()
+    {
+        if (_state.NowPlayingItem is not { } item || string.IsNullOrEmpty(item.Id)) return;
+        HyPlayer.Classes.Settings.SettingsBase.SetSettings("ResumeSongId", item.Id);
+        HyPlayer.Classes.Settings.SettingsBase.SetSettings("ResumePositionMs", (long)_state.Position.TotalMilliseconds);
+    }
+
     private void OnPositionChanged(TimeSpan position)
     {
         _state.Position = position;
+        if (_setting.rememberPlaybackPosition && DateTime.UtcNow - _lastResumeSave > TimeSpan.FromSeconds(5))
+        {
+            _lastResumeSave = DateTime.UtcNow;
+            SaveResumePoint();
+        }
         _lyricService.Tick(position);
         GetPlaylistService()?.OnPositionTick(position, _state.Duration);
         WeakReferenceMessenger.Default.Send(new PositionTickMessage(position));
