@@ -32,6 +32,7 @@ public interface IUIStateService
     bool NavigatingBack { get; set; }
     int PlaybarSecondCounter { get; set; }
     bool PlaybarIsVisible { get; set; }
+    bool AutoHidePlaybarActive { get; }
     DisplayRequest DisplayRequest { get; }
     BrushManagement BrushManagement { get; }
     List<string> ErrorMessageList { get; }

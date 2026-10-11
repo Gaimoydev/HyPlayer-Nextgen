@@ -438,6 +438,18 @@ namespace HyPlayer.Classes.Settings
             }
         }
 
+        public bool autoHideLyricPanel
+        {
+            get => GetSettings(nameof(autoHideLyricPanel), true);
+            set => SettingsBase.SetSettings(nameof(autoHideLyricPanel), value);
+        }
+
+        public double autoHideLyricPanelLines
+        {
+            get => System.Math.Max(GetSettings(nameof(autoHideLyricPanelLines), 3d), 0d);
+            set => SettingsBase.SetSettings(nameof(autoHideLyricPanelLines), System.Math.Max(System.Math.Round(value), 0d));
+        }
+
         /// <summary>
         /// Isolation FPS (minimum 60).
         /// </summary>

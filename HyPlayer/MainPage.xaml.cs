@@ -106,9 +106,56 @@ public sealed partial class MainPage : Page
                 break;
         }
     }
+    private bool _playbarSuppressed;
+
+    internal void SetPlaybarSuppressed(bool suppressed)
+    {
+        if (_playbarSuppressed == suppressed) return;
+        _playbarSuppressed = suppressed;
+        _playbarSuppressStoryboard?.Stop();
+        _playbarSuppressStoryboard = null;
+        if (!suppressed)
+        {
+            PlayBarHost.Opacity = 1;
+            PlayBarHost.IsHitTestVisible = true;
+            PlayBarHost.Visibility = Visibility.Visible;
+            return;
+        }
+
+        PlayBarHost.IsHitTestVisible = false;
+        var fade = new DoubleAnimation
+        {
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(250),
+            EasingFunction = new CircleEase { EasingMode = EasingMode.EaseOut }
+        };
+        var storyboard = new Storyboard();
+        Storyboard.SetTarget(fade, PlayBarHost);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        storyboard.Children.Add(fade);
+        storyboard.Completed += (_, _) =>
+        {
+            if (!_playbarSuppressed || _playbarSuppressStoryboard != storyboard) return;
+            _playbarSuppressStoryboard = null;
+            PlayBarHost.Visibility = Visibility.Collapsed;
+        };
+        _playbarSuppressStoryboard = storyboard;
+        storyboard.Begin();
+    }
+
+    private Storyboard? _playbarSuppressStoryboard;
+
+    internal void RestorePlaybar()
+    {
+        var uiState = Ioc.Default.GetRequiredService<IUIStateService>();
+        uiState.PlaybarSecondCounter = 0;
+        uiState.PlaybarIsVisible = true;
+        ShowBar();
+    }
+
     internal void OnPlaybarVisibilityChanged(bool isActivated)
     {
-        if (!_setting.AutoHidePlaybar) return;
+        if (!Ioc.Default.GetRequiredService<IUIStateService>().AutoHidePlaybarActive) return;
         _ = Ioc.Default.GetRequiredService<INotificationService>().InvokeOnUIThread(() =>
         {
             if (isActivated)
@@ -127,6 +174,7 @@ public sealed partial class MainPage : Page
         (Ioc.Default.GetRequiredService<IUIStateService>().PageBase as BasePage).NavItemBlank.IsEnabled = false;
         if (!IsPlaybarOnShow)
         {
+            IsPlaybarOnShow = true;
             PointerInAni.Begin();
             (Ioc.Default.GetRequiredService<IUIStateService>().BarPlayBar as PlayBar).RefreshPlayBarCover(Ioc.Default.GetRequiredService<PlaybackStateService>().NowPlayingItem);
             var BlankAni = new DoubleAnimation

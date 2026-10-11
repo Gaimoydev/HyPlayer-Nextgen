@@ -95,6 +95,8 @@ public sealed partial class ExpandedPlayer : Page
     public HyPlayItem? _lastSong;
     private bool _isManualChangeMode;
     private bool _needsRedesign = true;
+    private Windows.System.DispatcherQueueTimer? _redesignTimer;
+    private int _lastRedesignHeight;
     private int _nowHeight;
     private int _nowWidth;
     private bool _isProgramClick;
@@ -152,8 +154,11 @@ public sealed partial class ExpandedPlayer : Page
         LuminousBackground.AddHandler(PointerPressedEvent, wakeHandler, true);
         LuminousBackground.AddHandler(PointerReleasedEvent, wakeHandler, true);
         LuminousBackground.AddHandler(PointerExitedEvent, wakeHandler, true);
+        PageContainer.AddHandler(PointerMovedEvent, new PointerEventHandler(PageContainer_PointerMoved), true);
+        PageContainer.AddHandler(PointerExitedEvent, new PointerEventHandler(PageContainer_PointerExited), true);
         _lyricBox.Context.LineRollingEaseCalculator = new ElasticEaseRollingCalculator();
         _lyricBox.OnBeforeRender += _lyricBox_OnBeforeRender;
+        _lyricBox.ScrollPreviewChanged += LyricBox_ScrollPreviewChanged;
         _lyricBox.OnChanged += WakeLyricCanvas;
         _lyricBox.OnLyricLineClicked += _lyricBoxOnOnRequestSeek;
         _lyricBox.Context.LyricWidthRatio = _settings.lyricRenderWidthRatio / 100f;
@@ -335,6 +340,25 @@ public sealed partial class ExpandedPlayer : Page
         _needsRedesign = true;
     }
 
+    private void ScheduleRedesign()
+    {
+        if (_redesignTimer is null)
+        {
+            _redesignTimer = Windows.System.DispatcherQueue.GetForCurrentThread()?.CreateTimer();
+            if (_redesignTimer is null) return;
+            _redesignTimer.Interval = TimeSpan.FromMilliseconds(60);
+            _redesignTimer.IsRepeating = false;
+            _redesignTimer.Tick += (_, _) =>
+            {
+                if (!_needsRedesign || _uiState.IsInBackground) return;
+                _needsRedesign = false;
+                WakeLyricCanvas();
+                Redesign();
+            };
+        }
+        if (!_redesignTimer.IsRunning) _redesignTimer.Start();
+    }
+
     private void Current_SizeChanged(object? sender, WindowSizeChangedEventArgs? e)
     {
         WakeLyricCanvas();
@@ -349,12 +373,15 @@ public sealed partial class ExpandedPlayer : Page
 
             _lastWidth = _nowWidth;
             _needsRedesign = true;
+            UpdateAlbumSizeLimit();
         }
         else if (_lastHeight != _nowHeight)
         {
             _lastHeight = _nowHeight;
             _needsRedesign = true;
+            UpdateAlbumSizeLimit();
         }
+        if (_needsRedesign) ScheduleRedesign();
     }
 
     private double CalculateLyricWidth()
@@ -400,8 +427,283 @@ public sealed partial class ExpandedPlayer : Page
                 break;
         }
 
+        UpdateControlStyle();
+        if (_windowMode != ExpandedWindowMode.CoverOnly) StartLyricFade(1);
         _needsRedesign = true;
         _isRealClick = true;
+    }
+
+    private const double PlaybarReservedHeight = 80;
+    private const double CollapseButtonRevealHeight = 120;
+
+    private const double LyricFadeMilliseconds = 300;
+    private const double LeftPanelShiftMilliseconds = 500;
+
+    private bool _lyricsSuppressed;
+    private bool _lyricAvailabilityApplied;
+    private int _lyricPanelVersion;
+    private float _lyricFadeFrom = 1;
+    private float _lyricFadeTo = 1;
+    private long _lyricFadeStart;
+    private Storyboard? _leftPanelShiftStoryboard;
+
+    private float GetLyricOpacity()
+    {
+        var start = System.Threading.Volatile.Read(ref _lyricFadeStart);
+        if (start == 0) return _lyricFadeTo;
+        var progress = (float)Math.Clamp(Stopwatch.GetElapsedTime(start).TotalMilliseconds / LyricFadeMilliseconds, 0, 1);
+        var eased = progress * progress * (3 - 2 * progress);
+        return _lyricFadeFrom + (_lyricFadeTo - _lyricFadeFrom) * eased;
+    }
+
+    private void StartLyricFade(float to, float? from = null)
+    {
+        var current = from ?? GetLyricOpacity();
+        if (Math.Abs(current - to) < 0.001f && Math.Abs(_lyricFadeTo - to) < 0.001f) return;
+        _lyricFadeFrom = current;
+        _lyricFadeTo = to;
+        System.Threading.Volatile.Write(ref _lyricFadeStart, Stopwatch.GetTimestamp());
+        WakeLyricCanvas();
+    }
+
+    private int CountEffectiveLyricLines()
+    {
+        var info = _state.LyricInfo;
+        if (info?.PureLyricInfo is HyALRCLyricInfo alrcLyricInfo)
+            return alrcLyricInfo.ALRC?.Lines?.Count(line =>
+                !string.IsNullOrWhiteSpace(line.RawText) ||
+                (line.Words?.Any(word => !string.IsNullOrWhiteSpace(word.Word)) ?? false)) ?? 0;
+        return info?.Lyrics?.Count(lyric => !string.IsNullOrWhiteSpace(lyric.LyricLine?.CurrentLyric)) ?? 0;
+    }
+
+    private void ApplyLyricAvailability()
+    {
+        var suppress = _settings.autoHideLyricPanel &&
+                       CountEffectiveLyricLines() <= (int)_settings.autoHideLyricPanelLines;
+        var animate = IsLoaded && _lyricAvailabilityApplied;
+        _lyricAvailabilityApplied = true;
+        if (suppress == _lyricsSuppressed) return;
+        _lyricsSuppressed = suppress;
+        var version = ++_lyricPanelVersion;
+        if (suppress)
+        {
+            if (_windowMode != ExpandedWindowMode.Both) return;
+            if (!animate)
+            {
+                _windowMode = ExpandedWindowMode.CoverOnly;
+                ChangeWindowMode();
+                return;
+            }
+
+            _ = HideLyricPanelAsync(version);
+            return;
+        }
+
+        if (_windowMode != ExpandedWindowMode.CoverOnly || _isManualChangeMode || _nowWidth <= ResponsiveBreakpointWidth)
+        {
+            StartLyricFade(1);
+            return;
+        }
+
+        if (!animate)
+        {
+            _windowMode = ExpandedWindowMode.Both;
+            ChangeWindowMode();
+            return;
+        }
+
+        StartLyricFade(0, 0);
+        ShiftLeftPanel(() =>
+        {
+            _windowMode = ExpandedWindowMode.Both;
+            ChangeWindowMode();
+        });
+    }
+
+    private async Task HideLyricPanelAsync(int version)
+    {
+        StartLyricFade(0);
+        await Task.Delay(TimeSpan.FromMilliseconds(LyricFadeMilliseconds));
+        if (version != _lyricPanelVersion || _isCleanedUp || _windowMode != ExpandedWindowMode.Both) return;
+        ShiftLeftPanel(() =>
+        {
+            _windowMode = ExpandedWindowMode.CoverOnly;
+            ChangeWindowMode();
+        });
+    }
+
+    private void ShiftLeftPanel(Action changeLayout)
+    {
+        var before = GetAlbumBounds(PageContainer);
+        _leftPanelShiftStoryboard?.Stop();
+        _leftPanelShiftStoryboard = null;
+        changeLayout();
+        UpdateLayout();
+        var after = GetAlbumBounds(PageContainer);
+        if (before is not { } from || after is not { } to || to.Width <= 0 || to.Height <= 0) return;
+
+        var center = ImageAlbum.TransformToVisual(LeftPanel)
+            .TransformPoint(new Windows.Foundation.Point(ImageAlbum.ActualWidth / 2, ImageAlbum.ActualHeight / 2));
+        LeftPanelTransform.CenterX = center.X;
+        LeftPanelTransform.CenterY = center.Y;
+        var scale = from.Width / to.Width;
+        var deltaX = from.X + from.Width / 2 - (to.X + to.Width / 2);
+        var deltaY = from.Y + from.Height / 2 - (to.Y + to.Height / 2);
+        if (Math.Abs(deltaX) < 0.5 && Math.Abs(deltaY) < 0.5 && Math.Abs(scale - 1) < 0.001) return;
+
+        var storyboard = new Storyboard();
+        AddShiftAnimation(storyboard, "TranslateX", deltaX, 0);
+        AddShiftAnimation(storyboard, "TranslateY", deltaY, 0);
+        AddShiftAnimation(storyboard, "ScaleX", scale, 1);
+        AddShiftAnimation(storyboard, "ScaleY", scale, 1);
+        _leftPanelShiftStoryboard = storyboard;
+        storyboard.Begin();
+    }
+
+    private void AddShiftAnimation(Storyboard storyboard, string property, double from, double to)
+    {
+        var animation = new DoubleAnimation
+        {
+            From = from,
+            To = to,
+            Duration = TimeSpan.FromMilliseconds(LeftPanelShiftMilliseconds),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+        };
+        Storyboard.SetTarget(animation, LeftPanelTransform);
+        Storyboard.SetTargetProperty(animation, property);
+        storyboard.Children.Add(animation);
+    }
+
+    private Windows.Foundation.Rect? GetAlbumBounds(UIElement relativeTo)
+    {
+        if (LeftPanel.Visibility != Visibility.Visible || ImageAlbum.ActualWidth <= 0 || ImageAlbum.ActualHeight <= 0) return null;
+        return ImageAlbum.TransformToVisual(relativeTo)
+            .TransformBounds(new Windows.Foundation.Rect(0, 0, ImageAlbum.ActualWidth, ImageAlbum.ActualHeight));
+    }
+
+    private bool _appleControlsActive;
+    private bool _isImmersive;
+    private bool _playbarSuppressedByPage;
+    private bool _collapseButtonShown;
+
+    internal bool IsImmersive => _isImmersive;
+
+    private void UpdateControlStyle()
+    {
+        var apple = _settings.expandedControlStyle == ExpandedControlStyle.Apple &&
+                    _windowMode != ExpandedWindowMode.LyricOnly;
+        if (apple && ApplePlaybackControls is null) FindName(nameof(ApplePlaybackControls));
+        ApplePlaybackControls?.Visibility = apple ? Visibility.Visible : Visibility.Collapsed;
+        LeftPanel.RowDefinitions[1].Height = apple ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
+        var changed = apple != _appleControlsActive || !IsLoaded;
+        _appleControlsActive = apple;
+        UpdateAlbumSizeLimit();
+        if (apple) SyncControlsWidth();
+        if (changed) ApplyChromeState();
+    }
+
+    private void UpdateAlbumSizeLimit()
+    {
+        if (!_appleControlsActive || _nowWidth <= 0 || _nowHeight <= 0)
+        {
+            ImageAlbum.MaxWidth = double.PositiveInfinity;
+            ImageAlbum.MaxHeight = double.PositiveInfinity;
+            return;
+        }
+
+        var columnWidth = _windowMode == ExpandedWindowMode.Both ? _nowWidth / 2.0 : _nowWidth;
+        var size = Math.Max(160, Math.Min(columnWidth * 0.62, _nowHeight * 0.46));
+        ImageAlbum.MaxWidth = size;
+        ImageAlbum.MaxHeight = size;
+    }
+
+    private void ApplyChromeState()
+    {
+        var chromeVisible = !_isImmersive;
+        FadeTo(MoreBtn, chromeVisible ? 1 : 0);
+        FadeTo(ApplePlaybackControls, chromeVisible ? 1 : 0);
+        if (!chromeVisible || !_appleControlsActive) SetCollapseButtonShown(false);
+
+        MainGrid.Margin = new Thickness(0, 0, 0, _appleControlsActive ? 0 : PlaybarReservedHeight);
+        var suppress = _appleControlsActive || _isImmersive;
+        if (suppress == _playbarSuppressedByPage) return;
+        _playbarSuppressedByPage = suppress;
+        if (_uiState.PageMain is MainPage mainPage)
+        {
+            mainPage.SetPlaybarSuppressed(suppress);
+            if (!suppress) mainPage.RestorePlaybar();
+        }
+    }
+
+    private static void FadeTo(UIElement? element, double to, double milliseconds = 250, bool interactive = true)
+    {
+        if (element is null) return;
+        element.IsHitTestVisible = interactive && to > 0;
+        var animation = new DoubleAnimation
+        {
+            To = to,
+            Duration = TimeSpan.FromMilliseconds(milliseconds),
+            EasingFunction = new CircleEase { EasingMode = EasingMode.EaseOut }
+        };
+        var storyboard = new Storyboard();
+        Storyboard.SetTarget(animation, element);
+        Storyboard.SetTargetProperty(animation, "Opacity");
+        storyboard.Children.Add(animation);
+        storyboard.Begin();
+    }
+
+    private void SetCollapseButtonShown(bool shown)
+    {
+        if (shown == _collapseButtonShown) return;
+        _collapseButtonShown = shown;
+        FadeTo(BtnCollapsePage, shown ? 1 : 0, 200);
+    }
+
+    private void PageContainer_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_appleControlsActive || _isImmersive) return;
+        SetCollapseButtonShown(e.GetCurrentPoint(PageContainer).Position.Y <= CollapseButtonRevealHeight);
+    }
+
+    private void PageContainer_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        SetCollapseButtonShown(false);
+    }
+
+    private void BtnToggleImmersive_Click(object sender, RoutedEventArgs e)
+    {
+        if (BtnToggleImmersive.IsChecked) EnterImmersive();
+        else ExitImmersive();
+    }
+
+    private void EnterImmersive()
+    {
+        if (_isImmersive) return;
+        _isImmersive = true;
+        BtnToggleImmersive.IsChecked = true;
+        ApplyChromeState();
+        ImmersiveHintStoryboard.Begin();
+    }
+
+    internal void ExitImmersive()
+    {
+        if (!_isImmersive) return;
+        _isImmersive = false;
+        BtnToggleImmersive.IsChecked = false;
+        ImmersiveHintStoryboard.Stop();
+        ApplyChromeState();
+    }
+
+    private void SyncControlsWidth()
+    {
+        if (ApplePlaybackControls is null) return;
+        var width = ImageAlbum.ActualWidth;
+        ApplePlaybackControls.MaxWidth = width > 0 ? Math.Max(width, ApplePlaybackControls.MinWidth) : double.PositiveInfinity;
+    }
+
+    private void BtnCollapsePage_Click(object sender, RoutedEventArgs e)
+    {
+        (_uiState.BarPlayBar as PlayBar)?.CollapseExpandedPlayer();
     }
 
     private void Redesign()
@@ -409,10 +711,15 @@ public sealed partial class ExpandedPlayer : Page
         // 这个函数里面放无法用XAML实现的页面布局方式
         BtnToggleFullScreen.IsChecked = ApplicationView.GetForCurrentView().IsFullScreenMode;
     
-        if (Math.Abs(lastChangedLyricWidth - LyricWidth) > 0.001f && Math.Abs(_lyricRenderXOffset - RightPanel.ActualOffset.X) > 0.001f)
+        var lyricOffset = RightPanel.ActualOffset;
+        if (Math.Abs(lastChangedLyricWidth - LyricWidth) > 0.001f || _lastRedesignHeight != _nowHeight ||
+            Math.Abs(_lyricRenderXOffset - lyricOffset.X) > 0.001f || Math.Abs(_lyricRenderYOffset - lyricOffset.Y) > 0.001f)
         {
-            _lyricRenderXOffset = RightPanel.ActualOffset.X;
-            _lyricRenderYOffset = RightPanel.ActualOffset.Y;
+            _lyricRenderXOffset = lyricOffset.X;
+            _lyricRenderYOffset = lyricOffset.Y;
+            _lastRedesignHeight = _nowHeight;
+            _lyricBox.RenderOriginX = _lyricRenderXOffset;
+            _lyricBox.RenderOriginY = _lyricRenderYOffset;
             _lyricBox.Redesign((float)LyricWidth, _nowHeight, LuminousBackground.Dpi);
             _lyricBox.ChangeRenderFontSize((float)LyricShowSize,
                 (_settings.translationSize > 0) ? _settings.translationSize : (float)LyricShowSize / 2,
@@ -428,7 +735,7 @@ public sealed partial class ExpandedPlayer : Page
                 _windowMode = ExpandedWindowMode.CoverOnly;
                 ChangeWindowMode();
             }
-            else if (_nowWidth > ResponsiveBreakpointWidth && _windowMode != ExpandedWindowMode.Both)
+            else if (_nowWidth > ResponsiveBreakpointWidth && _windowMode != ExpandedWindowMode.Both && !_lyricsSuppressed)
             {
                 _windowMode = ExpandedWindowMode.Both;
                 ChangeWindowMode();
@@ -440,6 +747,7 @@ public sealed partial class ExpandedPlayer : Page
     {
         ImageRotateTransform.CenterX = e.NewSize.Width / 2;
         ImageRotateTransform.CenterY = e.NewSize.Height / 2;
+        if (_appleControlsActive) SyncControlsWidth();
     }
 
     private void LuminousBackgroundContainer_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -555,6 +863,7 @@ public sealed partial class ExpandedPlayer : Page
             if (_state.NowPlayingItem == null) return;
             _lyricBox.Redesign((float)LyricWidth, _nowHeight, LuminousBackground.Dpi);
             RefreshUIColor();
+            ApplyLyricAvailability();
             Redesign();
             _lyricHasBeenLoaded = true;
         });
@@ -616,9 +925,11 @@ public sealed partial class ExpandedPlayer : Page
         _ = _notification.InvokeOnUIThread(() =>
         {
             var artistText = mpi?.ArtistString;
+            var titleChanged = ViewModel.SongName != mpi?.Name;
             ViewModel.Artist = artistText;
             ViewModel.SongName = mpi?.Name;
             ViewModel.Album = mpi?.AlbumString;
+            if (titleChanged && _settings.expandAnimation) FadeInSongInfo();
             if (mpi?.PlayItem == null)
             {
                 _lyricList.Clear();
@@ -819,6 +1130,7 @@ public sealed partial class ExpandedPlayer : Page
     {
         if (!_isRealClick) return;
         _isManualChangeMode = true;
+        _lyricPanelVersion++;
         if (BtnToggleAlbum.IsChecked && BtnToggleLyric.IsChecked)
             _windowMode = ExpandedWindowMode.Both;
         else if (BtnToggleAlbum.IsChecked)
@@ -851,7 +1163,51 @@ public sealed partial class ExpandedPlayer : Page
 
     private void LyricBoxContainer_RightTapped(object sender, RightTappedRoutedEventArgs e)
     {
-        //_lyricBox.ContextFlyout.ShowAt(_lyricBox);
+        if (!_lyricBox.IsScrollPreviewing) return;
+        _lyricBox.ResetScrolling();
+        e.Handled = true;
+    }
+
+    private Storyboard? _lyricPreviewHintStoryboard;
+
+    private void LyricBox_ScrollPreviewChanged(bool previewing)
+    {
+        _ = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+        {
+            if (_isCleanedUp) return;
+            ShowLyricPreviewHint(previewing);
+        });
+    }
+
+    private void ShowLyricPreviewHint(bool show)
+    {
+        _lyricPreviewHintStoryboard?.Pause();
+        var duration = TimeSpan.FromMilliseconds(show ? 320 : 240);
+        EasingFunctionBase easing = new CircleEase { EasingMode = show ? EasingMode.EaseOut : EasingMode.EaseIn };
+        var opacity = new DoubleAnimation { To = show ? 1 : 0, Duration = duration, EasingFunction = easing };
+        var offset = new DoubleAnimation { To = show ? 0 : -8, Duration = duration, EasingFunction = easing };
+        Storyboard.SetTarget(opacity, LyricPreviewHint);
+        Storyboard.SetTargetProperty(opacity, "Opacity");
+        Storyboard.SetTarget(offset, LyricPreviewHintOffset);
+        Storyboard.SetTargetProperty(offset, "Y");
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(opacity);
+        storyboard.Children.Add(offset);
+        _lyricPreviewHintStoryboard = storyboard;
+        storyboard.Begin();
+    }
+
+    internal bool TryHandleEscape()
+    {
+        if (_lyricBox.IsScrollPreviewing)
+        {
+            _lyricBox.ResetScrolling();
+            return true;
+        }
+
+        if (!_isImmersive) return false;
+        ExitImmersive();
+        return true;
     }
 
     private async void BtnLoadLocalLyric(object sender, RoutedEventArgs e)
@@ -1003,6 +1359,9 @@ public sealed partial class ExpandedPlayer : Page
                 PageContainer.Background =
                     new SolidColorBrush(albumMainColor!.Value);
             }
+            _coverLuminance = _albumColors.Count > 0 && _settings.expandedPlayerBackgroundType is BackgroundType.Animated or BackgroundType.Isolation
+                ? _albumColors.Average(c => RelativeLuminance(c.R, c.G, c.B))
+                : RelativeLuminance((byte)themeColor.Color.X, (byte)themeColor.Color.Y, (byte)themeColor.Color.Z);
             if (!resultGenerated)
             {
                 finalResult = !themeColor.ColorIsDark;
@@ -1292,9 +1651,11 @@ public sealed partial class ExpandedPlayer : Page
                     using var cover = _state.CoverStream.CloneStream();
                     var brushManagement = _uiState.BrushManagement;
                     brushManagement.IsBright = isBright;
+                    AnimateBrightDimmer(isBright);
                     var bitmap = new BitmapImage();
                     await bitmap.SetSourceAsync(cover);
-                    ViewModel.Cover = bitmap;
+                    await SwapCoverAsync(bitmap, version);
+                    if (version != _coverRefreshVersion) return;
                     if (_settings.expandedPlayerBackgroundType == BackgroundType.CoverBlur && Background is not ImageBrush)
                     {
                         var brush = new ImageBrush()
@@ -1313,7 +1674,7 @@ public sealed partial class ExpandedPlayer : Page
                         BlackCover.Fill = new SolidColorBrush(Color.FromArgb(80, 0, 0, 0));
                     if (_settings.lyricColor != LyricColor.FollowCover || albumMainColor == null)
                     {
-                        if (isBright)
+                        if (_settings.lyricColor == LyricColor.Black)
                         {
                             brushManagement.AccentBrush = new SolidColorBrush(Color.FromArgb(255, 0, 0, 0));
                             brushManagement.IdleBrush = new SolidColorBrush(Color.FromArgb(114, 0, 0, 0));
@@ -1379,15 +1740,9 @@ public sealed partial class ExpandedPlayer : Page
                     {
                         if (_shaderEffect != null)
                         {
-                            _shaderEffect.Properties["color1"] = _albumColorVectors[0];
-                            _shaderEffect.Properties["color2"] = _albumColorVectors[1];
-                            _shaderEffect.Properties["color3"] = _albumColorVectors[2];
-                            _shaderEffect.Properties["color4"] = _albumColorVectors[3];
                             _shaderEffect.Properties["UseHSVBlending"] = UseHSVBlending();
                             _shaderEffect.Properties["EnableLightWave"] = _settings.IsolationLightWave;
-                            _shaderEffect.Properties["RandomValue1"] = (float)Random.Shared.Next(-50, +50);
-                            _shaderEffect.Properties["RandomValue2"] = (float)Random.Shared.Next(-50, +50);
-                            _shaderEffect.Properties["RandomValue3"] = (float)Random.Shared.Next(-50, +50);
+                            BeginShaderBlend(_albumColorVectors);
                         }
                     }
                     WakeLyricCanvas();
@@ -1409,8 +1764,6 @@ public sealed partial class ExpandedPlayer : Page
     }
     public Task Show()
     {
-        MainGrid.Margin = new Thickness(0, 0, 0, 80);
-
         var BtnAni = new DoubleAnimation
         {
             To = 1,
@@ -1429,8 +1782,6 @@ public sealed partial class ExpandedPlayer : Page
     {
         _ = _notification.InvokeOnUIThread(() =>
         {
-            MainGrid.Margin = new Thickness(0);
-
             var BtnAni = new DoubleAnimation
             {
                 To = 0,
@@ -1447,7 +1798,7 @@ public sealed partial class ExpandedPlayer : Page
 
     internal void OnPlaybarVisibilityChanged(bool isActivated)
     {
-        if (!_settings.AutoHidePlaybar) return;
+        if (_appleControlsActive || _isImmersive || !_uiState.AutoHidePlaybarActive) return;
         if (isActivated)
         {
             Show();
@@ -1488,10 +1839,9 @@ public sealed partial class ExpandedPlayer : Page
         LuminousBackground.DpiScale = _settings.IsolationScale;
         if (_albumColorVectors?.Count == 4)
         {
-            _shaderEffect?.Properties["color1"] = _albumColorVectors[0];
-            _shaderEffect?.Properties["color2"] = _albumColorVectors[1];
-            _shaderEffect?.Properties["color3"] = _albumColorVectors[2];
-            _shaderEffect?.Properties["color4"] = _albumColorVectors[3];
+            for (var i = 0; i < 4; i++) _shaderColorsFrom[i] = _shaderColorsTo[i] = _albumColorVectors[i];
+            _shaderColorsInitialized = true;
+            ApplyShaderBlend(1);
             _shaderEffect?.Properties["UseHSVBlending"] = UseHSVBlending();
 
         }
@@ -1508,8 +1858,211 @@ public sealed partial class ExpandedPlayer : Page
         }
     }
 
+    private readonly Vector3[] _shaderColorsFrom = new Vector3[4];
+    private readonly Vector3[] _shaderColorsTo = new Vector3[4];
+    private Vector3 _shaderRandom = new(Random.Shared.Next(-50, +50), Random.Shared.Next(-50, +50), Random.Shared.Next(-50, +50));
+    private long _shaderBlendStart;
+    private bool _shaderColorsInitialized;
+    private const double ShaderBlendSeconds = 1.2;
+
+    private void BeginShaderBlend(IReadOnlyList<Vector3> colors)
+    {
+        if (colors.Count < 4) return;
+        if (!_shaderColorsInitialized)
+        {
+            for (var i = 0; i < 4; i++) _shaderColorsFrom[i] = _shaderColorsTo[i] = colors[i];
+            _shaderColorsInitialized = true;
+            ApplyShaderBlend(1);
+            return;
+        }
+        var ordered = MatchPaletteOrder(colors, _shaderColorsTo);
+        var difference = 0f;
+        for (var i = 0; i < 4; i++) difference += Vector3.Distance(ordered[i], _shaderColorsTo[i]);
+        if (difference < 0.03f) return;
+        var t = ShaderBlendProgress();
+        for (var i = 0; i < 4; i++)
+        {
+            _shaderColorsFrom[i] = Vector3.Lerp(_shaderColorsFrom[i], _shaderColorsTo[i], t);
+            _shaderColorsTo[i] = ordered[i];
+        }
+        System.Threading.Volatile.Write(ref _shaderBlendStart, Stopwatch.GetTimestamp());
+        WakeLyricCanvas();
+    }
+
+    private static Vector3[] MatchPaletteOrder(IReadOnlyList<Vector3> colors, Vector3[] slots)
+    {
+        var result = new Vector3[4];
+        var used = new bool[4];
+        var assigned = new bool[4];
+        for (var round = 0; round < 4; round++)
+        {
+            var best = float.MaxValue;
+            var bestSlot = 0;
+            var bestColor = 0;
+            for (var slot = 0; slot < 4; slot++)
+            {
+                if (assigned[slot]) continue;
+                for (var color = 0; color < 4; color++)
+                {
+                    if (used[color]) continue;
+                    var distance = Vector3.DistanceSquared(colors[color], slots[slot]);
+                    if (distance >= best) continue;
+                    best = distance;
+                    bestSlot = slot;
+                    bestColor = color;
+                }
+            }
+            result[bestSlot] = colors[bestColor];
+            assigned[bestSlot] = true;
+            used[bestColor] = true;
+        }
+        return result;
+    }
+
+    private float ShaderBlendProgress()
+    {
+        var start = System.Threading.Volatile.Read(ref _shaderBlendStart);
+        if (start == 0) return 1;
+        var t = Math.Clamp(Stopwatch.GetElapsedTime(start).TotalSeconds / ShaderBlendSeconds, 0, 1);
+        return (float)(t * t * (3 - 2 * t));
+    }
+
+    private void ApplyShaderBlend(float t)
+    {
+        if (_shaderEffect is null) return;
+        _shaderEffect.Properties["color1"] = Vector3.Lerp(_shaderColorsFrom[0], _shaderColorsTo[0], t);
+        _shaderEffect.Properties["color2"] = Vector3.Lerp(_shaderColorsFrom[1], _shaderColorsTo[1], t);
+        _shaderEffect.Properties["color3"] = Vector3.Lerp(_shaderColorsFrom[2], _shaderColorsTo[2], t);
+        _shaderEffect.Properties["color4"] = Vector3.Lerp(_shaderColorsFrom[3], _shaderColorsTo[3], t);
+        _shaderEffect.Properties["RandomValue1"] = _shaderRandom.X;
+        _shaderEffect.Properties["RandomValue2"] = _shaderRandom.Y;
+        _shaderEffect.Properties["RandomValue3"] = _shaderRandom.Z;
+    }
+
+    private int _coverSwapVersion;
+
+    private const float MaxBackgroundDim = 0.38f;
+    private double _coverLuminance;
+    private Windows.UI.Composition.SpriteVisual? _dimBlur;
+    private Windows.UI.Composition.SpriteVisual? _dimTint;
+
+    private float _canvasDimAmount;
+    private float _canvasDimProgress;
+    private float _canvasDimTarget;
+    private long _canvasDimTimestamp;
+    private Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect? _isolationBlur;
+    private const float CanvasBlurAmount = 12;
+
+    private void AnimateBrightDimmer(bool bright)
+    {
+        EnsureBackgroundDimmer();
+        var dim = bright ? (float)Math.Clamp((_coverLuminance - 0.35) / 0.65 * 0.45, 0.08, MaxBackgroundDim) : 0f;
+        var inCanvas = _settings.expandedPlayerBackgroundType == BackgroundType.Isolation;
+        if (inCanvas)
+        {
+            if (bright) _canvasDimAmount = dim;
+            _canvasDimTarget = bright ? 1 : 0;
+            System.Threading.Volatile.Write(ref _canvasDimTimestamp, Stopwatch.GetTimestamp());
+            WakeLyricCanvas();
+            bright = false;
+            dim = 0;
+        }
+        var compositor = _dimTint!.Compositor;
+        var ease = compositor.CreateCubicBezierEasingFunction(new Vector2(0.25f, 0.1f), new Vector2(0.25f, 1f));
+        foreach (var (visual, target) in new[] { (_dimBlur!, bright ? 1f : 0f), (_dimTint, dim) })
+        {
+            var fade = compositor.CreateScalarKeyFrameAnimation();
+            fade.InsertKeyFrame(1f, target, ease);
+            fade.Duration = TimeSpan.FromMilliseconds(900);
+            visual.StartAnimation("Opacity", fade);
+        }
+    }
+
+    private void EnsureBackgroundDimmer()
+    {
+        if (_dimBlur is not null) return;
+        var compositor = ElementCompositionPreview.GetElementVisual(BrightDimmer).Compositor;
+        var blur = new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
+        {
+            Name = "Blur",
+            BlurAmount = 16,
+            BorderMode = Microsoft.Graphics.Canvas.Effects.EffectBorderMode.Hard,
+            Source = new Windows.UI.Composition.CompositionEffectSourceParameter("backdrop")
+        };
+        var blurBrush = compositor.CreateEffectFactory(blur).CreateBrush();
+        blurBrush.SetSourceParameter("backdrop", compositor.CreateBackdropBrush());
+        _dimBlur = compositor.CreateSpriteVisual();
+        _dimBlur.Brush = blurBrush;
+        _dimBlur.RelativeSizeAdjustment = Vector2.One;
+        _dimBlur.Opacity = 0;
+        _dimTint = compositor.CreateSpriteVisual();
+        _dimTint.Brush = compositor.CreateColorBrush(Windows.UI.Colors.Black);
+        _dimTint.RelativeSizeAdjustment = Vector2.One;
+        _dimTint.Opacity = 0;
+        var root = compositor.CreateContainerVisual();
+        root.RelativeSizeAdjustment = Vector2.One;
+        root.Children.InsertAtTop(_dimBlur);
+        root.Children.InsertAtTop(_dimTint);
+        ElementCompositionPreview.SetElementChildVisual(BrightDimmer, root);
+    }
+
+    private static double RelativeLuminance(byte r, byte g, byte b) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+
+    private void FadeInSongInfo()
+    {
+        foreach (var element in new UIElement[] { TextBlockSongTitle, SingerHyperlinkBtn, AlbumHyperlinkBtn })
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(element);
+            var compositor = visual.Compositor;
+            var fadeIn = compositor.CreateScalarKeyFrameAnimation();
+            fadeIn.InsertKeyFrame(0f, 0f);
+            fadeIn.InsertKeyFrame(1f, 1f, compositor.CreateCubicBezierEasingFunction(new Vector2(0f, 0f), new Vector2(0.2f, 1f)));
+            fadeIn.Duration = TimeSpan.FromMilliseconds(480);
+            visual.StartAnimation("Opacity", fadeIn);
+        }
+    }
+
+    private async Task SwapCoverAsync(BitmapImage bitmap, int version)
+    {
+        var swap = ++_coverSwapVersion;
+        var visual = ElementCompositionPreview.GetElementVisual(ImageAlbum);
+        var compositor = visual.Compositor;
+        if (ViewModel.Cover is not null && ImageAlbum.ActualWidth > 0 && _settings.expandAnimation)
+        {
+            var fadeOut = compositor.CreateScalarKeyFrameAnimation();
+            fadeOut.InsertKeyFrame(1f, 0f, compositor.CreateCubicBezierEasingFunction(new Vector2(0.4f, 0f), new Vector2(1f, 1f)));
+            fadeOut.Duration = TimeSpan.FromMilliseconds(160);
+            visual.StartAnimation("Opacity", fadeOut);
+            await Task.Delay(160);
+            if (swap != _coverSwapVersion || version != _coverRefreshVersion) return;
+        }
+        ViewModel.Cover = bitmap;
+        var fadeIn = compositor.CreateScalarKeyFrameAnimation();
+        fadeIn.InsertKeyFrame(1f, 1f, compositor.CreateCubicBezierEasingFunction(new Vector2(0f, 0f), new Vector2(0.2f, 1f)));
+        fadeIn.Duration = TimeSpan.FromMilliseconds(420);
+        visual.StartAnimation("Opacity", fadeIn);
+    }
+
     private void LuminousBackground_Update(Microsoft.Graphics.Canvas.UI.Xaml.ICanvasAnimatedControl sender, Microsoft.Graphics.Canvas.UI.Xaml.CanvasAnimatedUpdateEventArgs args)
     {
+        if (_canvasDimProgress != _canvasDimTarget)
+        {
+            var now = Stopwatch.GetTimestamp();
+            var last = System.Threading.Volatile.Read(ref _canvasDimTimestamp);
+            var step = (float)(Stopwatch.GetElapsedTime(last, now).TotalSeconds / 0.9);
+            System.Threading.Volatile.Write(ref _canvasDimTimestamp, now);
+            _canvasDimProgress = _canvasDimTarget > _canvasDimProgress
+                ? Math.Min(_canvasDimTarget, _canvasDimProgress + step)
+                : Math.Max(_canvasDimTarget, _canvasDimProgress - step);
+            WakeLyricCanvas();
+        }
+        if (_shaderColorsInitialized && System.Threading.Volatile.Read(ref _shaderBlendStart) != 0)
+        {
+            var blend = ShaderBlendProgress();
+            ApplyShaderBlend(blend);
+            if (blend < 1) WakeLyricCanvas();
+            else System.Threading.Volatile.Write(ref _shaderBlendStart, 0);
+        }
         TryPauseIdleLyricCanvas();
         if (_state.IsPlaying && _settings.expandedPlayerBackgroundType == BackgroundType.Isolation)
         {
@@ -1541,17 +2094,40 @@ public sealed partial class ExpandedPlayer : Page
         using var session = args.DrawingSession;
         if (_shaderEffect != null && _settings.expandedPlayerBackgroundType == BackgroundType.Isolation)
         {
-            session.DrawImage(_shaderEffect);
+            var progress = _canvasDimProgress;
+            if (progress > 0.001f)
+            {
+                var eased = progress * progress * (3 - 2 * progress);
+                _isolationBlur ??= new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect { BorderMode = Microsoft.Graphics.Canvas.Effects.EffectBorderMode.Hard };
+                _isolationBlur.Source = _shaderEffect;
+                _isolationBlur.BlurAmount = CanvasBlurAmount * eased;
+                session.DrawImage(_isolationBlur);
+                var size = sender.Size;
+                session.FillRectangle(0, 0, (float)size.Width, (float)size.Height, Color.FromArgb((byte)(255 * _canvasDimAmount * eased), 0, 0, 0));
+            }
+            else
+            {
+                session.DrawImage(_shaderEffect);
+            }
         }
         if (_settings.EnableFFT)
         {
             DrawAudioFFTGraph(sender, session);
         }
         if(_windowMode == ExpandedWindowMode.CoverOnly) return;
+        var lyricOpacity = GetLyricOpacity();
+        if (lyricOpacity <= 0.001f) return;
         using var lyricCommand = new CanvasCommandList(session);
-        using var lyricSession = lyricCommand.CreateDrawingSession();
-        _lyricBox.Draw(lyricSession, args.Timing);
-        session.DrawImage(lyricCommand, _lyricRenderXOffset, _lyricRenderYOffset);
+        using (var lyricSession = lyricCommand.CreateDrawingSession())
+            _lyricBox.Draw(lyricSession, args.Timing);
+        if (lyricOpacity >= 0.999f)
+        {
+            session.DrawImage(lyricCommand, _lyricRenderXOffset, _lyricRenderYOffset);
+            return;
+        }
+
+        using var lyricFade = new Microsoft.Graphics.Canvas.Effects.OpacityEffect { Source = lyricCommand, Opacity = lyricOpacity };
+        session.DrawImage(lyricFade, _lyricRenderXOffset, _lyricRenderYOffset);
     }
 
 
@@ -1620,6 +2196,7 @@ public sealed partial class ExpandedPlayer : Page
         WeakReferenceMessenger.Default.UnregisterAll(this);
         Window.Current.SizeChanged -= Current_SizeChanged;
         _lyricBox.OnBeforeRender -= _lyricBox_OnBeforeRender;
+        _lyricBox.ScrollPreviewChanged -= LyricBox_ScrollPreviewChanged;
         _lyricBox.OnChanged -= WakeLyricCanvas;
         _lyricBox.OnLyricLineClicked -= _lyricBoxOnOnRequestSeek;
         _uiState.ClearReferences(this);

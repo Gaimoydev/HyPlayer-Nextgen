@@ -138,22 +138,24 @@
                 Fill="{ThemeResource OpacityGradientBrush}"
                 Opacity="1" />
         </Grid>
-        <Grid
-            Name="GridPlayBar"
-            Height="120"
-            Margin="{x:Bind hyplayer:XamlHelpers.Setting.playBarMargin, Mode=OneWay, Converter={StaticResource PlayBarMarginConverter}}"
-            VerticalAlignment="Bottom"
-            x:FieldModifier="public"
-            Background="{x:Bind hyplayer:XamlHelpers.Setting.playbarBackgroundAcrylic, Mode=OneWay, Converter={StaticResource BooleanToGridPlayBarBrushesConverter}}"
-            BorderBrush="{ThemeResource CardBorderBrush}"
-            BorderThickness="1"
-            CornerRadius="{x:Bind hyplayer:XamlHelpers.Setting.playBarMargin, Mode=OneWay, Converter={StaticResource PlayBarCornerRadiusConverter}}"
-            Opacity="1"
-            Visibility="Visible">
-            <controls2:PlayBar />
-            <Grid.RenderTransform>
-                <TranslateTransform x:Name="PlayBarTrans" />
-            </Grid.RenderTransform>
+        <Grid Name="PlayBarHost" x:FieldModifier="public">
+            <Grid
+                Name="GridPlayBar"
+                Height="120"
+                Margin="{x:Bind hyplayer:XamlHelpers.Setting.playBarMargin, Mode=OneWay, Converter={StaticResource PlayBarMarginConverter}}"
+                VerticalAlignment="Bottom"
+                x:FieldModifier="public"
+                Background="{x:Bind hyplayer:XamlHelpers.Setting.playbarBackgroundAcrylic, Mode=OneWay, Converter={StaticResource BooleanToGridPlayBarBrushesConverter}}"
+                BorderBrush="{ThemeResource CardBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="{x:Bind hyplayer:XamlHelpers.Setting.playBarMargin, Mode=OneWay, Converter={StaticResource PlayBarCornerRadiusConverter}}"
+                Opacity="1"
+                Visibility="Visible">
+                <controls2:PlayBar />
+                <Grid.RenderTransform>
+                    <TranslateTransform x:Name="PlayBarTrans" />
+                </Grid.RenderTransform>
+            </Grid>
         </Grid>
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup>

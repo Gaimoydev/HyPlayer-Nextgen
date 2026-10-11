@@ -39,6 +39,18 @@ namespace HyPlayer.Classes.Settings
         /// <summary>
         /// Whether to force memory garbage collection.
         /// </summary>
+        public int BackgroundReleaseSeconds
+        {
+            get => GetSettings(nameof(BackgroundReleaseSeconds), 60);
+            set => SettingsBase.SetSettings(nameof(BackgroundReleaseSeconds), value);
+        }
+
+        public int MemoryLimitMB
+        {
+            get => GetSettings(nameof(MemoryLimitMB), -1);
+            set => SettingsBase.SetSettings(nameof(MemoryLimitMB), value);
+        }
+
         public bool forceMemoryGarbage
         {
             get => GetSettings(nameof(forceMemoryGarbage), false);
@@ -411,6 +423,18 @@ namespace HyPlayer.Classes.Settings
             {
                 SettingsBase.SetSettings(nameof(AutoHidePlaybar), value);
             }
+        }
+
+        public ExpandedControlStyle expandedControlStyle
+        {
+            get => GetSettings(nameof(expandedControlStyle), ExpandedControlStyle.Apple);
+            set => SettingsBase.SetSettings(nameof(expandedControlStyle), (int)value);
+        }
+
+        public bool expandedAutoCollapsePlaybar
+        {
+            get => GetSettings(nameof(expandedAutoCollapsePlaybar), true);
+            set => SettingsBase.SetSettings(nameof(expandedAutoCollapsePlaybar), value);
         }
 
         /// <summary>

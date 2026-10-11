@@ -22,6 +22,11 @@
         CoverOnly = 1,
         LyricOnly = 2
     }
+    public enum ExpandedControlStyle : int
+    {
+        Apple = 0,
+        HyPlayer = 1
+    }
     public enum UpdateSource : int
     {
         MicrosoftStore = 0,

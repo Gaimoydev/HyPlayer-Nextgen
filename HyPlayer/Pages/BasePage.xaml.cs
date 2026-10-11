@@ -132,8 +132,13 @@ public sealed partial class BasePage : Page
             else if (!_playback.IsPlaying) _player.PlayAll();
 
         if (args.VirtualKey == VirtualKey.Escape)
-            if (Ioc.Default.GetRequiredService<IUIStateService>().IsExpanded)
-                (Ioc.Default.GetRequiredService<IUIStateService>().BarPlayBar as PlayBar).CollapseExpandedPlayer();
+        {
+            var uiState = Ioc.Default.GetRequiredService<IUIStateService>();
+            if (uiState.PageExpandedPlayer is ExpandedPlayer expandedPlayer && expandedPlayer.TryHandleEscape())
+                return;
+            if (uiState.IsExpanded)
+                (uiState.BarPlayBar as PlayBar).CollapseExpandedPlayer();
+        }
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

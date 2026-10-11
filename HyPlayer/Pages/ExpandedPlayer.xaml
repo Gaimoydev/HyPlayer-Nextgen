@@ -73,6 +73,36 @@
                 To="0"
                 Duration="0:0:0.25" />
         </Storyboard>
+        <Storyboard x:Name="ImmersiveHintStoryboard">
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="ImmersiveHintOffset" Storyboard.TargetProperty="Y">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="-8" />
+                <EasingDoubleKeyFrame KeyTime="0:0:0.35" Value="0">
+                    <EasingDoubleKeyFrame.EasingFunction>
+                        <CircleEase EasingMode="EaseOut" />
+                    </EasingDoubleKeyFrame.EasingFunction>
+                </EasingDoubleKeyFrame>
+                <LinearDoubleKeyFrame KeyTime="0:0:2.8" Value="0" />
+                <EasingDoubleKeyFrame KeyTime="0:0:3.3" Value="-8">
+                    <EasingDoubleKeyFrame.EasingFunction>
+                        <CircleEase EasingMode="EaseIn" />
+                    </EasingDoubleKeyFrame.EasingFunction>
+                </EasingDoubleKeyFrame>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="ImmersiveHint" Storyboard.TargetProperty="Opacity">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0" />
+                <EasingDoubleKeyFrame KeyTime="0:0:0.3" Value="1">
+                    <EasingDoubleKeyFrame.EasingFunction>
+                        <CircleEase EasingMode="EaseOut" />
+                    </EasingDoubleKeyFrame.EasingFunction>
+                </EasingDoubleKeyFrame>
+                <LinearDoubleKeyFrame KeyTime="0:0:2.8" Value="1" />
+                <EasingDoubleKeyFrame KeyTime="0:0:3.3" Value="0">
+                    <EasingDoubleKeyFrame.EasingFunction>
+                        <CircleEase EasingMode="EaseIn" />
+                    </EasingDoubleKeyFrame.EasingFunction>
+                </EasingDoubleKeyFrame>
+            </DoubleAnimationUsingKeyFrames>
+        </Storyboard>
         <Storyboard x:Name="ShowAni" />
         <Storyboard x:Name="CollapseAni" />
 
@@ -114,6 +144,69 @@
             Grid.Column="0"
             Background="Transparent"
             Canvas.ZIndex="1" />
+        <Button
+            x:Name="BtnCollapsePage"
+            AutomationProperties.Name="收起"
+            Grid.Row="1"
+            Width="48"
+            Height="24"
+            Margin="0,2,0,0"
+            Padding="0"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            Background="Transparent"
+            BorderThickness="0"
+            Canvas.ZIndex="3"
+            Click="BtnCollapsePage_Click"
+            CornerRadius="12"
+            IsHitTestVisible="False"
+            Opacity="0"
+            ToolTipService.ToolTip="收起">
+            <FontIcon
+                FontSize="16"
+                Foreground="White"
+                Glyph="&#xE70D;" />
+        </Button>
+        <Border
+            x:Name="ImmersiveHint"
+            Grid.Row="1"
+            Margin="0,24,0,0"
+            Padding="18,10"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            Background="#B3000000"
+            Canvas.ZIndex="4"
+            CornerRadius="10"
+            IsHitTestVisible="False"
+            Opacity="0">
+            <Border.RenderTransform>
+                <TranslateTransform x:Name="ImmersiveHintOffset" />
+            </Border.RenderTransform>
+            <TextBlock
+                FontSize="14"
+                Foreground="White"
+                Text="已进入沉浸模式，按 Esc 退出" />
+        </Border>
+        <Border
+            x:Name="LyricPreviewHint"
+            Grid.Row="1"
+            Margin="0,24,0,0"
+            Padding="18,10"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            Background="#B3000000"
+            Canvas.ZIndex="4"
+            CornerRadius="10"
+            IsHitTestVisible="False"
+            Opacity="0">
+            <Border.RenderTransform>
+                <TranslateTransform x:Name="LyricPreviewHintOffset" Y="-8" />
+            </Border.RenderTransform>
+            <TextBlock
+                FontSize="14"
+                Foreground="White"
+                Text="当前正在预览歌词，按下鼠标右键或 Esc 以快速复位" />
+        </Border>
         <win2d:CanvasAnimatedControl
             x:Name="LuminousBackground"
             Grid.Row="0"
@@ -192,6 +285,12 @@
                 Grid.Row="2"
                 Grid.Column="2" />
         </Grid>
+        <Border
+            x:Name="BrightDimmer"
+            Grid.Row="0"
+            Grid.RowSpan="3"
+            Canvas.ZIndex="-1"
+            IsHitTestVisible="False" />
         <Grid
             x:Name="MainGrid"
             Grid.Row="1"
@@ -206,6 +305,9 @@
                 HorizontalAlignment="Stretch"
                 VerticalAlignment="Center"
                 Tapped="LeftPanel_Tapped">
+                <Grid.RenderTransform>
+                    <CompositeTransform x:Name="LeftPanelTransform" />
+                </Grid.RenderTransform>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="2*" />
                     <RowDefinition Height="1*" />
@@ -273,6 +375,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <controls1:AutoScrollView
                         Grid.Row="0"
@@ -282,7 +385,7 @@
                             x:Name="TextBlockSongTitle"
                             FontSize="46"
                             FontWeight="Bold"
-                            Foreground="{x:Bind hyplayer:XamlHelpers.BrushManagement.AccentBrush, Mode=OneWay}"
+                            Foreground="White"
                             HorizontalTextAlignment="Center"
                             IsTextSelectionEnabled="True"
                             Text="{x:Bind ViewModel.SongName, Mode=OneWay}" />
@@ -298,9 +401,10 @@
 
                         <HyperlinkButton
                             Name="SingerHyperlinkBtn"
+                            AutomationProperties.Name="歌手"
                             Click="TextBlockSinger_OnTapped"
                             FontSize="20"
-                            Foreground="{x:Bind hyplayer:XamlHelpers.BrushManagement.AccentBrush, Mode=OneWay}"
+                            Foreground="White"
                             Style="{StaticResource TextBlockButtonStyle}">
                             <controls1:AutoScrollView IsPlaying="True">
                                 <TextBlock Name="SingerTextBlock" Text="{x:Bind ViewModel.Artist, Mode=OneWay}" />
@@ -308,9 +412,10 @@
                         </HyperlinkButton>
                         <HyperlinkButton
                             Name="AlbumHyperlinkBtn"
+                            AutomationProperties.Name="专辑"
                             Click="AlbumHyperlinkBtn_OnTapped"
                             FontSize="20"
-                            Foreground="{x:Bind hyplayer:XamlHelpers.BrushManagement.AccentBrush, Mode=OneWay}"
+                            Foreground="White"
                             Style="{StaticResource TextBlockButtonStyle}">
                             <controls1:AutoScrollView IsPlaying="True">
                                 <TextBlock x:Name="AlbumTextBlock" Text="{x:Bind ViewModel.Album, Mode=OneWay}" />
@@ -319,11 +424,20 @@
                         </HyperlinkButton>
 
                     </controls1:AlignableWrapPanel>
+                    <controls1:ExpandedPlaybackControls
+                        x:Name="ApplePlaybackControls"
+                        Grid.Row="2"
+                        MinWidth="280"
+                        Margin="0,16,0,0"
+                        HorizontalAlignment="Stretch"
+                        x:Load="False" />
                 </Grid>
             </Grid>
             <Grid x:Name="RightPanel" Grid.Column="1" />
             <Button
                 x:Name="MoreBtn"
+                AutomationProperties.Name="更多"
+                ToolTipService.ToolTip="更多"
                 Grid.Row="1"
                 Grid.Column="0"
                 Grid.ColumnSpan="2"
@@ -401,6 +515,16 @@
                                 <FontIcon Glyph="&#xE1A1;" />
                             </ToggleMenuFlyoutItem.Icon>
                         </ToggleMenuFlyoutItem>
+                        <ToggleMenuFlyoutItem
+                            x:Name="BtnToggleImmersive"
+                            HorizontalContentAlignment="Left"
+                            Background="Transparent"
+                            Click="BtnToggleImmersive_Click"
+                            Text="沉浸模式">
+                            <ToggleMenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE740;" />
+                            </ToggleMenuFlyoutItem.Icon>
+                        </ToggleMenuFlyoutItem>
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem
                             HorizontalContentAlignment="Left"
@@ -457,7 +581,7 @@
                     </MenuFlyout>
                 </Button.Flyout>
                 <Button.Content>
-                    <FontIcon Foreground="{x:Bind hyplayer:XamlHelpers.BrushManagement.AccentBrush, Mode=OneWay}" Glyph="&#xEDE3;" />
+                    <FontIcon Foreground="White" Glyph="&#xEDE3;" />
                 </Button.Content>
             </Button>
         </Grid>
