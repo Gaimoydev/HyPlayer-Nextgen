@@ -26,6 +26,7 @@ public class ActionLyricLine : RenderingLyricLine
 
     // 新增：用于记录文本排版的实际起始 X 坐标
     private float _renderStartX = 0f;
+    private float _topPadding;
 
     public override void GoToReactionState(ReactionState state, RenderContext context)
     {
@@ -48,11 +49,11 @@ public class ActionLyricLine : RenderingLyricLine
                 G = 206,
                 B = 255
             };
-            session.FillRoundedRectangle(offset.X, offset.Y,
-                RenderingWidth, RenderingHeight, 6, 6, color);
+            session.FillRoundedRectangle(offset.X, offset.Y + _topPadding,
+                RenderingWidth, RenderingHeight - _topPadding, 6, 6, color);
         }
 
-        var drawingTop = offset.Y;
+        var drawingTop = offset.Y + _topPadding;
         session.DrawImage(_staticPersistCache, actualOffsetX, drawingTop);
         return true;
     }
@@ -100,7 +101,8 @@ public class ActionLyricLine : RenderingLyricLine
             _renderStartX = (float)textLayout.LayoutBounds.X;
         }
 
-        RenderingHeight = (float)(textLayout?.LayoutBounds.Height ?? 0);
+        _topPadding = TypographySelector(t => t?.LyricFontSize, context)!.Value * 0.5f;
+        RenderingHeight = (float)(textLayout?.LayoutBounds.Height ?? 0) + _topPadding;
         RenderingWidth = (float)(textLayout?.LayoutBounds.Width ?? 0) + 32; // 加上 32 作为左右各 16 的 Padding 留白
 
         _staticPersistCache?.Dispose();
@@ -113,7 +115,7 @@ public class ActionLyricLine : RenderingLyricLine
         }
         else
         {
-            var staticPersistCacheTarget = new CanvasRenderTarget(session, RenderingWidth, RenderingHeight, context.Dpi);
+            var staticPersistCacheTarget = new CanvasRenderTarget(session, RenderingWidth, RenderingHeight - _topPadding, context.Dpi);
             _staticPersistCache = staticPersistCacheTarget;
             pstDs = staticPersistCacheTarget.CreateDrawingSession();
         }
