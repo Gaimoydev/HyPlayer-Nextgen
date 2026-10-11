@@ -161,7 +161,9 @@ public sealed partial class ModelManager : ObservableObject
 
     public ModelEntry? Find(string id) => Entries.FirstOrDefault(e => e.Descriptor.Id == id);
 
-    public bool IsUsable(string id) => Find(id) is { IsInstalled: true, IsEnabled: true };
+    public static bool Suspended { get; set; }
+
+    public bool IsUsable(string id) => !Suspended && Find(id) is { IsInstalled: true, IsEnabled: true };
 
     public Task EnsureRefreshedAsync() => _refresh ??= RefreshAsync();
 
