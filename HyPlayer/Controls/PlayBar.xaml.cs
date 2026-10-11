@@ -338,11 +338,24 @@ DoubleAnimation verticalAnimation;
     public void CollapseExpandedPlayer()
     {
         (_uiState.PageMain as MainPage).IsExpandedPlayerInitialized = false;
-        if (_uiState.PageExpandedPlayer == null) return;
+        if (_uiState.PageExpandedPlayer == null)
+        {
+            ButtonExpand.Visibility = Visibility.Visible;
+            ButtonCollapse.Visibility = Visibility.Collapsed;
+            PlayBarBackgroundFadeIn.Begin();
+            _uiState.IsExpanded = false;
+            if (_uiState.PageMain is MainPage page)
+            {
+                page.SetPlaybarSuppressed(false);
+                page.ExpandedPlayer.Visibility = Visibility.Collapsed;
+                page.MainFrame.Visibility = Visibility.Visible;
+            }
+            return;
+        }
         if (_uiState.PageMain is MainPage mainPage)
         {
             mainPage.SetPlaybarSuppressed(false);
-            if (!_setting.AutoHidePlaybar) mainPage.RestorePlaybar();
+            mainPage.RestorePlaybar();
         }
         (_uiState.PageExpandedPlayer as ExpandedPlayer).StartCollapseAnimation();
         GridSongAdvancedOperation.Visibility = Visibility.Collapsed;
@@ -611,6 +624,7 @@ DoubleAnimation verticalAnimation;
     internal void ShareCurrent() => Btn_Share_OnClick(this, null);
     internal void OpenDesktopLyrics() => ToggleButton_Click(this, null);
     internal void SetVolumeValue(double value) => SliderAudioRate.Value = value;
+    internal void ToggleMute() => BtnMute_OnCllick(this, null);
 
     internal void ShowPlaylistAt(FrameworkElement anchor)
     {
@@ -746,6 +760,27 @@ DoubleAnimation verticalAnimation;
             : "\uE006";
     }
 
+    private async Task ResumeAfterLaunchAsync(HyPlayItem item)
+    {
+        if (_setting.rememberPlaybackPosition &&
+            HyPlayer.Classes.Settings.SettingsBase.GetSettings("ResumeSongId", string.Empty) == item.Id)
+        {
+            var position = TimeSpan.FromMilliseconds(HyPlayer.Classes.Settings.SettingsBase.GetSettings("ResumePositionMs", 0L));
+            var duration = TimeSpan.FromMilliseconds(item.LengthInMilliseconds);
+            if (position > TimeSpan.FromSeconds(3) && (duration <= TimeSpan.Zero || position < duration - TimeSpan.FromSeconds(5)))
+            {
+                try
+                {
+                    await _control.SeekAsync(position);
+                }
+                catch
+                {
+                }
+            }
+        }
+        if (_setting.autoPlayOnLaunch) RunOnUIThread(() => _control.Play());
+    }
+
     private async void HyPlayListOnOnLoginDone()
     {
         if (ViewModel.PlaySourceId == "local") return;
@@ -764,6 +799,7 @@ DoubleAnimation verticalAnimation;
                     var nowItem = _playlist.Items[restoreIndex];
                     await _control.LoadAndPlayAsync(nowItem, setAsPrimary: true, autoPlay: false, removeCurrentSongs: true);
                     _playlist.RestoreNowPlayingIndex(restoreIndex);
+                    await ResumeAfterLaunchAsync(nowItem);
                     RunOnUIThread(() =>
                     {
                         var targetingIndex = ViewModel.GetTargetingIndex();

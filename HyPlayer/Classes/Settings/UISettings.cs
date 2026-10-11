@@ -416,6 +416,42 @@ namespace HyPlayer.Classes.Settings
         /// <summary>
         /// Whether playbar auto-hides.
         /// </summary>
+        public string customUiFontFamily
+        {
+            get => GetSettings(nameof(customUiFontFamily), string.Empty);
+            set => SettingsBase.SetSettings(nameof(customUiFontFamily), value ?? string.Empty);
+        }
+
+        public string backgroundImagePath
+        {
+            get => GetSettings(nameof(backgroundImagePath), string.Empty);
+            set => SettingsBase.SetSettings(nameof(backgroundImagePath), value ?? string.Empty);
+        }
+
+        public double backgroundImageOpacity
+        {
+            get => GetSettings(nameof(backgroundImageOpacity), 35d);
+            set => SettingsBase.SetSettings(nameof(backgroundImageOpacity), value);
+        }
+
+        public double backgroundImageBlur
+        {
+            get => GetSettings(nameof(backgroundImageBlur), 0d);
+            set => SettingsBase.SetSettings(nameof(backgroundImageBlur), value);
+        }
+
+        public int backgroundImageStretch
+        {
+            get => GetSettings(nameof(backgroundImageStretch), 0);
+            set => SettingsBase.SetSettings(nameof(backgroundImageStretch), value);
+        }
+
+        public bool hidePlaybarOnHome
+        {
+            get => GetSettings(nameof(hidePlaybarOnHome), false);
+            set => SettingsBase.SetSettings(nameof(hidePlaybarOnHome), value);
+        }
+
         public bool AutoHidePlaybar
         {
             get => GetSettings(nameof(AutoHidePlaybar), false);

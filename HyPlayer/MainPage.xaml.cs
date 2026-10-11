@@ -6,6 +6,7 @@ using HyPlayer.NeteaseApi;
 using HyPlayer.Pages;
 using HyPlayer.Services.Playback;
 using CommunityToolkit.Mvvm.DependencyInjection;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Graphics.Canvas.Effects;
 using System;
 using System.Numerics;
@@ -68,6 +69,36 @@ public sealed partial class MainPage : Page
             // displayRequest
             Ioc.Default.GetRequiredService<IUIStateService>().DisplayRequest.RequestActive();
         }
+        WeakReferenceMessenger.Default.Register<PlaybackStateChangedMessage>(this, (r, m) => ((MainPage)r).OnPlaybackStateChanged(m.IsPlaying));
+        _setting.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(Setting.hidePlaybarOnHome)) UpdateHomePlaybar();
+        };
+    }
+
+    private DispatcherTimer? _idleHideTimer;
+
+    private void OnPlaybackStateChanged(bool isPlaying)
+    {
+        _ = Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
+        {
+            _idleHideTimer?.Stop();
+            if (isPlaying)
+            {
+                UpdateHomePlaybar();
+                return;
+            }
+            if (_idleHideTimer == null)
+            {
+                _idleHideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+                _idleHideTimer.Tick += (_, _) =>
+                {
+                    _idleHideTimer.Stop();
+                    UpdateHomePlaybar();
+                };
+            }
+            _idleHideTimer.Start();
+        });
     }
 
     private void MainPage_ActualThemeChanged(FrameworkElement sender, object args)
@@ -107,40 +138,88 @@ public sealed partial class MainPage : Page
         }
     }
     private bool _playbarSuppressed;
+    private bool _playbarHiddenWhenIdle;
+    private bool _playbarHidden;
 
     internal void SetPlaybarSuppressed(bool suppressed)
     {
-        if (_playbarSuppressed == suppressed) return;
         _playbarSuppressed = suppressed;
+        ApplyPlaybarVisibility(false);
+    }
+
+    internal void UpdateHomePlaybar()
+    {
+        var uiState = Ioc.Default.GetRequiredService<IUIStateService>();
+        var hidden = _setting.hidePlaybarOnHome && !uiState.IsExpanded && !Ioc.Default.GetRequiredService<PlaybackStateService>().IsPlaying;
+        if (hidden == _playbarHiddenWhenIdle) return;
+        _playbarHiddenWhenIdle = hidden;
+        ApplyPlaybarVisibility(true);
+    }
+
+    private void ApplyPlaybarVisibility(bool slide)
+    {
+        var suppressed = _playbarSuppressed || _playbarHiddenWhenIdle;
+        if (_playbarHidden == suppressed) return;
+        _playbarHidden = suppressed;
         _playbarSuppressStoryboard?.Stop();
         _playbarSuppressStoryboard = null;
+        if (PlayBarHost.RenderTransform is not Windows.UI.Xaml.Media.TranslateTransform offset)
+            PlayBarHost.RenderTransform = offset = new Windows.UI.Xaml.Media.TranslateTransform();
+        var basePage = Ioc.Default.GetRequiredService<IUIStateService>().PageBase as BasePage;
+        var storyboard = new Storyboard();
         if (!suppressed)
         {
-            PlayBarHost.Opacity = 1;
             PlayBarHost.IsHitTestVisible = true;
             PlayBarHost.Visibility = Visibility.Visible;
+            GridPlayBarMarginBlur.Visibility = Visibility.Visible;
+            basePage?.SetPlaybarNavSpaceVisible(true);
+            if (!slide)
+            {
+                PlayBarHost.Opacity = 1;
+                offset.Y = 0;
+                GridPlayBarMarginBlur.Opacity = 1;
+                return;
+            }
+            AddPlaybarAnimation(storyboard, PlayBarHost, "Opacity", 1, 350, EasingMode.EaseOut);
+            AddPlaybarAnimation(storyboard, offset, "Y", 0, 350, EasingMode.EaseOut);
+            AddPlaybarAnimation(storyboard, GridPlayBarMarginBlur, "Opacity", 1, 350, EasingMode.EaseOut);
+            storyboard.Begin();
             return;
         }
 
         PlayBarHost.IsHitTestVisible = false;
-        var fade = new DoubleAnimation
+        AddPlaybarAnimation(storyboard, PlayBarHost, "Opacity", 0, slide ? 400 : 250, slide ? EasingMode.EaseIn : EasingMode.EaseOut);
+        if (slide)
         {
-            To = 0,
-            Duration = TimeSpan.FromMilliseconds(250),
-            EasingFunction = new CircleEase { EasingMode = EasingMode.EaseOut }
-        };
-        var storyboard = new Storyboard();
-        Storyboard.SetTarget(fade, PlayBarHost);
-        Storyboard.SetTargetProperty(fade, "Opacity");
-        storyboard.Children.Add(fade);
+            AddPlaybarAnimation(storyboard, offset, "Y", 80, 400, EasingMode.EaseIn);
+            AddPlaybarAnimation(storyboard, GridPlayBarMarginBlur, "Opacity", 0, 400, EasingMode.EaseIn);
+        }
         storyboard.Completed += (_, _) =>
         {
-            if (!_playbarSuppressed || _playbarSuppressStoryboard != storyboard) return;
+            if (!_playbarHidden || _playbarSuppressStoryboard != storyboard) return;
             _playbarSuppressStoryboard = null;
             PlayBarHost.Visibility = Visibility.Collapsed;
+            if (_playbarHiddenWhenIdle)
+            {
+                GridPlayBarMarginBlur.Visibility = Visibility.Collapsed;
+                basePage?.SetPlaybarNavSpaceVisible(false);
+            }
         };
         _playbarSuppressStoryboard = storyboard;
         storyboard.Begin();
+    }
+
+    private static void AddPlaybarAnimation(Storyboard storyboard, DependencyObject target, string property, double to, int milliseconds, EasingMode easing)
+    {
+        var animation = new DoubleAnimation
+        {
+            To = to,
+            Duration = TimeSpan.FromMilliseconds(milliseconds),
+            EasingFunction = new CircleEase { EasingMode = easing }
+        };
+        Storyboard.SetTarget(animation, target);
+        Storyboard.SetTargetProperty(animation, property);
+        storyboard.Children.Add(animation);
     }
 
     private Storyboard? _playbarSuppressStoryboard;

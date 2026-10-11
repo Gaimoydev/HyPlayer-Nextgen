@@ -46,8 +46,10 @@ public class UIStateService : IUIStateService
         get => _isExpanded;
         set
         {
+            var changed = _isExpanded != value;
             _isExpanded = value;
             _setting.OnPropertyChanged("playbarBackgroundAcrylic");
+            if (changed) (PageMain as MainPage)?.UpdateHomePlaybar();
         }
     }
 
@@ -57,8 +59,8 @@ public class UIStateService : IUIStateService
     public bool NavigatingBack { get; set; }
     public int PlaybarSecondCounter { get; set; }
     public bool PlaybarIsVisible { get; set; } = true;
-    public bool AutoHidePlaybarActive => _setting.AutoHidePlaybar ||
-        (IsExpanded && _setting.expandedControlStyle == ExpandedControlStyle.HyPlayer && _setting.expandedAutoCollapsePlaybar);
+    public bool AutoHidePlaybarActive =>
+        IsExpanded && _setting.expandedControlStyle == ExpandedControlStyle.HyPlayer && _setting.expandedAutoCollapsePlaybar;
     public DisplayRequest DisplayRequest { get; } = new();
     public BrushManagement BrushManagement { get; } = new();
     public List<string> ErrorMessageList { get; } = [];

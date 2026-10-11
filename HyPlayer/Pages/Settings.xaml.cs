@@ -57,6 +57,29 @@ public sealed partial class Settings : Page
 
     public ModelManager Models { get; } = Ioc.Default.GetRequiredService<ModelManager>();
 
+    public System.Collections.ObjectModel.ObservableCollection<ShortcutEntry> Shortcuts => KeyboardShortcuts.Entries;
+    public System.Collections.ObjectModel.ObservableCollection<SidebarSection> SidebarSections => SidebarLayout.Sections;
+
+    private void SidebarReset_Click(object sender, RoutedEventArgs e) => SidebarLayout.ResetToDefault();
+
+    public bool ShortcutsEnabled
+    {
+        get => KeyboardShortcuts.Enabled;
+        set => KeyboardShortcuts.Enabled = value;
+    }
+
+    private void ShortcutCapture_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: ShortcutEntry entry }) KeyboardShortcuts.BeginCapture(entry);
+    }
+
+    private void ShortcutClear_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: ShortcutEntry entry }) KeyboardShortcuts.Clear(entry);
+    }
+
+    private void ShortcutResetAll_Click(object sender, RoutedEventArgs e) => KeyboardShortcuts.ResetAll();
+
     private bool isbyprogram;
     private int _elapse = 10;
 
@@ -113,9 +136,28 @@ public sealed partial class Settings : Page
         //ToggleButtonDaylight.IsChecked = Application.Current.RequestedTheme == ApplicationTheme.Dark;
         BtnXboxReserve.Visibility = true ? Visibility.Visible : Visibility.Collapsed;
         FontBox.ItemsSource = SystemFonts.Value;
+        UiFontBox.ItemsSource = UiFonts.Value;
     }
 
     public static readonly Lazy<List<FontInfo>> SystemFonts = new(GetAllFonts, System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+    private static readonly Lazy<List<FontInfo>> UiFonts = new(() => [new FontInfo { Name = "默认", Value = string.Empty }, .. SystemFonts.Value]);
+
+    private async void PickBackgroundImage_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await AppearanceCustomizer.PickBackgroundAsync();
+        }
+        catch (Exception ex)
+        {
+            _notification.ShowMessage("设置背景图失败", ex.Message);
+        }
+    }
+
+    private async void RemoveBackgroundImage_Click(object sender, RoutedEventArgs e)
+    {
+        await AppearanceCustomizer.RemoveBackgroundAsync();
+    }
 
     private void Pivot_OnPivotItemLoaded(Pivot sender, PivotItemEventArgs args)
     {

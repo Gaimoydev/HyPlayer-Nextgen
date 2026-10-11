@@ -595,7 +595,7 @@
                             <controls3:SettingsExpander
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Stretch"
-                                Description="可选下载，用于提升自动混音的节拍、调性与人声判断，未安装时使用内置算法"
+                                Description="可选下载，用于提升自动混音的效果；如果启用分析模型，在播放歌曲时会有短时间的高负载资源占用"
                                 Header="自动混音分析模型"
                                 IsExpanded="True"
                                 ItemsSource="{x:Bind Models.Entries}"
@@ -627,6 +627,92 @@
                                                     OffContent="停用"
                                                     OnContent="启用"
                                                     Visibility="{x:Bind IsInstalled, Mode=OneWay}" />
+                                            </StackPanel>
+                                        </controls3:SettingsCard>
+                                    </DataTemplate>
+                                </controls3:SettingsExpander.ItemTemplate>
+                            </controls3:SettingsExpander>
+
+                            <controls3:SettingsExpander
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                Header="启动与恢复"
+                                IsExpanded="True">
+                                <controls3:SettingsExpander.HeaderIcon>
+                                    <FontIcon Glyph="&#xE768;" />
+                                </controls3:SettingsExpander.HeaderIcon>
+                                <controls3:SettingsExpander.Items>
+                                    <controls3:SettingsCard Description="配合开机自启动使用，可以实现开机自动播放" Header="启动后自动播放">
+                                        <ToggleSwitch
+                                            MinWidth="10"
+                                            HorizontalAlignment="Right"
+                                            IsOn="{x:Bind hyplayer:XamlHelpers.Setting.autoPlayOnLaunch, Mode=TwoWay}" />
+                                    </controls3:SettingsCard>
+                                    <controls3:SettingsCard Description="重新打开应用时从上次的位置继续播放" Header="记住播放进度">
+                                        <ToggleSwitch
+                                            MinWidth="10"
+                                            HorizontalAlignment="Right"
+                                            IsOn="{x:Bind hyplayer:XamlHelpers.Setting.rememberPlaybackPosition, Mode=TwoWay}" />
+                                    </controls3:SettingsCard>
+                                </controls3:SettingsExpander.Items>
+                            </controls3:SettingsExpander>
+
+                            <controls3:SettingsExpander
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                Description=""
+                                Header="弱网与节能">
+                                <controls3:SettingsExpander.HeaderIcon>
+                                    <FontIcon Glyph="&#xEC48;" />
+                                </controls3:SettingsExpander.HeaderIcon>
+                                <controls3:SettingsExpander.Items>
+                                    <controls3:SettingsCard Description="检测到网络较慢时，提示降低音质、不加载封面并放宽超时与重试" Header="弱网时弹出提示">
+                                        <ToggleSwitch
+                                            MinWidth="10"
+                                            HorizontalAlignment="Right"
+                                            IsOn="{x:Bind hyplayer:XamlHelpers.Setting.promptWeakNetwork, Mode=TwoWay}" />
+                                    </controls3:SettingsCard>
+                                    <controls3:SettingsCard Description="开启节能或使用电池供电时，提示暂停模型分析并关闭部分耗电效果" Header="节能时弹出提示">
+                                        <ToggleSwitch
+                                            MinWidth="10"
+                                            HorizontalAlignment="Right"
+                                            IsOn="{x:Bind hyplayer:XamlHelpers.Setting.promptPowerSaving, Mode=TwoWay}" />
+                                    </controls3:SettingsCard>
+                                </controls3:SettingsExpander.Items>
+                            </controls3:SettingsExpander>
+
+                            <controls3:SettingsExpander
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                Description=""
+                                Header="快捷键"
+                                IsExpanded="False"
+                                ItemsSource="{x:Bind Shortcuts}">
+                                <controls3:SettingsExpander.HeaderIcon>
+                                    <FontIcon Glyph="&#xE92E;" />
+                                </controls3:SettingsExpander.HeaderIcon>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Click="ShortcutResetAll_Click" Content="全部恢复默认" />
+                                    <ToggleSwitch
+                                        MinWidth="10"
+                                        IsOn="{x:Bind ShortcutsEnabled, Mode=TwoWay}"
+                                        OffContent="关闭"
+                                        OnContent="开启" />
+                                </StackPanel>
+                                <controls3:SettingsExpander.ItemTemplate>
+                                    <DataTemplate x:DataType="classes:ShortcutEntry">
+                                        <controls3:SettingsCard Header="{x:Bind Name}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <Button
+                                                    MinWidth="160"
+                                                    AutomationProperties.Name="{x:Bind Name}"
+                                                    Click="ShortcutCapture_Click"
+                                                    Content="{x:Bind DisplayText, Mode=OneWay}"
+                                                    Tag="{x:Bind}" />
+                                                <Button
+                                                    Click="ShortcutClear_Click"
+                                                    Content="清除"
+                                                    Tag="{x:Bind}" />
                                             </StackPanel>
                                         </controls3:SettingsCard>
                                     </DataTemplate>
@@ -857,6 +943,16 @@
                                             HorizontalAlignment="Right"
                                             IsOn="{x:Bind hyplayer:XamlHelpers.Setting.expandedAutoCollapsePlaybar, Mode=TwoWay}" />
                                     </controls3:SettingsCard>
+                                    <controls3:SettingsCard Header="自动收缩控制栏时间 (秒)" Visibility="{x:Bind hyplayer:XamlHelpers.Setting.expandedAutoCollapsePlaybar, Mode=OneWay}">
+                                        <Slider
+                                            x:Name="AutoHidePlayBarTime"
+                                            Width="256"
+                                            HorizontalAlignment="Right"
+                                            Maximum="10"
+                                            Minimum="1"
+                                            ToolTipService.ToolTip="{x:Bind AutoHidePlayBarTime.Value}"
+                                            Value="{x:Bind hyplayer:XamlHelpers.Setting.AutoHidePlaybarTime, Mode=TwoWay}" />
+                                    </controls3:SettingsCard>
                                     <controls3:SettingsCard Description="无歌词或歌词行数过少时仅显示封面" Header="自动收起歌词界面">
                                         <ToggleSwitch
                                             MinWidth="10"
@@ -1056,6 +1152,53 @@
                                             RadiusY="10" />
                                     </controls3:SettingsCard>
 
+                                    <controls3:SettingsCard Description="部分控件需重启应用后生效" Header="界面字体">
+                                        <ComboBox
+                                            x:Name="UiFontBox"
+                                            MinWidth="200"
+                                            HorizontalAlignment="Right"
+                                            DisplayMemberPath="Name"
+                                            SelectedValue="{x:Bind hyplayer:XamlHelpers.Setting.customUiFontFamily, Mode=TwoWay}"
+                                            SelectedValuePath="Value" />
+                                    </controls3:SettingsCard>
+                                    <controls3:SettingsCard Description="" Header="自定义主页面背景图">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button Click="PickBackgroundImage_Click" Content="选择图片" />
+                                            <Button
+                                                Click="RemoveBackgroundImage_Click"
+                                                Content="移除"
+                                                Visibility="{x:Bind hyplayer:XamlHelpers.Setting.HasCustomBackground, Mode=OneWay}" />
+                                        </StackPanel>
+                                    </controls3:SettingsCard>
+                                    <controls3:SettingsCard Header="背景图不透明度 (%)" Visibility="{x:Bind hyplayer:XamlHelpers.Setting.HasCustomBackground, Mode=OneWay}">
+                                        <Slider
+                                            Width="256"
+                                            HorizontalAlignment="Right"
+                                            Maximum="100"
+                                            Minimum="5"
+                                            StepFrequency="1"
+                                            Value="{x:Bind hyplayer:XamlHelpers.Setting.backgroundImageOpacity, Mode=TwoWay}" />
+                                    </controls3:SettingsCard>
+                                    <controls3:SettingsCard Header="背景图模糊" Visibility="{x:Bind hyplayer:XamlHelpers.Setting.HasCustomBackground, Mode=OneWay}">
+                                        <Slider
+                                            Width="256"
+                                            HorizontalAlignment="Right"
+                                            Maximum="60"
+                                            Minimum="0"
+                                            StepFrequency="1"
+                                            Value="{x:Bind hyplayer:XamlHelpers.Setting.backgroundImageBlur, Mode=TwoWay}" />
+                                    </controls3:SettingsCard>
+                                    <controls3:SettingsCard Header="背景图填充方式" Visibility="{x:Bind hyplayer:XamlHelpers.Setting.HasCustomBackground, Mode=OneWay}">
+                                        <ComboBox
+                                            MinWidth="120"
+                                            HorizontalAlignment="Right"
+                                            SelectedIndex="{x:Bind hyplayer:XamlHelpers.Setting.backgroundImageStretch, Mode=TwoWay}">
+                                            <ComboBoxItem Content="填充" />
+                                            <ComboBoxItem Content="适应" />
+                                            <ComboBoxItem Content="拉伸" />
+                                            <ComboBoxItem Content="原始大小" />
+                                        </ComboBox>
+                                    </controls3:SettingsCard>
                                     <controls3:SettingsCard Description="需重启应用" Header="无图模式">
                                         <ToggleSwitch
                                             MinWidth="10"
@@ -1081,21 +1224,116 @@
                                             HorizontalAlignment="Right"
                                             IsOn="{x:Bind hyplayer:XamlHelpers.Setting.notClearMode, Mode=TwoWay}" />
                                     </controls3:SettingsCard>
-                                    <controls3:SettingsCard Header="自动隐藏PlayBar">
+                                    <controls3:SettingsCard Description="" Header="在主界面隐藏 PlayBar">
                                         <ToggleSwitch
                                             MinWidth="10"
                                             HorizontalAlignment="Right"
-                                            IsOn="{x:Bind hyplayer:XamlHelpers.Setting.AutoHidePlaybar, Mode=TwoWay}" />
+                                            IsOn="{x:Bind hyplayer:XamlHelpers.Setting.hidePlaybarOnHome, Mode=TwoWay}" />
                                     </controls3:SettingsCard>
-                                    <controls3:SettingsCard Header="自动隐藏PlayBar时间" Visibility="{x:Bind hyplayer:XamlHelpers.Setting.AutoHidePlaybar, Mode=OneWay}">
-                                        <Slider
-                                            x:Name="AutoHidePlayBarTime"
-                                            Width="256"
-                                            HorizontalAlignment="Right"
-                                            Maximum="10"
-                                            Minimum="1"
-                                            ToolTipService.ToolTip="{x:Bind AutoHidePlayBarTime.Value}"
-                                            Value="{x:Bind hyplayer:XamlHelpers.Setting.AutoHidePlaybarTime, Mode=TwoWay}" />
+                                </controls3:SettingsExpander.Items>
+                            </controls3:SettingsExpander>
+
+                            <controls3:SettingsExpander
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                Description=""
+                                Header="自定义侧边栏">
+                                <controls3:SettingsExpander.HeaderIcon>
+                                    <FontIcon Glyph="&#xE700;" />
+                                </controls3:SettingsExpander.HeaderIcon>
+                                <Button Click="SidebarReset_Click" Content="恢复默认" />
+                                <controls3:SettingsExpander.Items>
+                                    <controls3:SettingsCard HorizontalContentAlignment="Stretch" ContentAlignment="Vertical">
+                                        <ListView
+                                            HorizontalAlignment="Stretch"
+                                            AllowDrop="True"
+                                            CanDragItems="True"
+                                            CanReorderItems="True"
+                                            ItemsSource="{x:Bind SidebarSections}"
+                                            SelectionMode="None">
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Margin" Value="0,4" />
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate x:DataType="classes:SidebarSection">
+                                                    <Border
+                                                        Padding="12,8"
+                                                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="6">
+                                                        <StackPanel Spacing="4">
+                                                            <Grid ColumnSpacing="12">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <FontIcon
+                                                                    VerticalAlignment="Center"
+                                                                    FontSize="14"
+                                                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                                    Glyph="&#xE76F;" />
+                                                                <TextBlock
+                                                                    Grid.Column="1"
+                                                                    VerticalAlignment="Center"
+                                                                    FontWeight="SemiBold"
+                                                                    Text="{x:Bind Name}" />
+                                                                <ToggleSwitch
+                                                                    Grid.Column="2"
+                                                                    MinWidth="0"
+                                                                    IsOn="{x:Bind IsVisible, Mode=TwoWay}"
+                                                                    OffContent=""
+                                                                    OnContent="" />
+                                                            </Grid>
+                                                            <ListView
+                                                                Margin="20,0,0,0"
+                                                                AllowDrop="True"
+                                                                CanDragItems="True"
+                                                                CanReorderItems="True"
+                                                                IsEnabled="{x:Bind IsVisible, Mode=OneWay}"
+                                                                ItemsSource="{x:Bind Items}"
+                                                                SelectionMode="None">
+                                                                <ListView.ItemContainerStyle>
+                                                                    <Style TargetType="ListViewItem">
+                                                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                                        <Setter Property="MinHeight" Value="36" />
+                                                                    </Style>
+                                                                </ListView.ItemContainerStyle>
+                                                                <ListView.ItemTemplate>
+                                                                    <DataTemplate x:DataType="classes:SidebarEntry">
+                                                                        <Grid ColumnSpacing="12">
+                                                                            <Grid.ColumnDefinitions>
+                                                                                <ColumnDefinition Width="Auto" />
+                                                                                <ColumnDefinition Width="*" />
+                                                                                <ColumnDefinition Width="Auto" />
+                                                                            </Grid.ColumnDefinitions>
+                                                                            <FontIcon
+                                                                                VerticalAlignment="Center"
+                                                                                FontSize="12"
+                                                                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                                                Glyph="&#xE76F;" />
+                                                                            <TextBlock
+                                                                                Grid.Column="1"
+                                                                                VerticalAlignment="Center"
+                                                                                Text="{x:Bind Name}" />
+                                                                            <CheckBox
+                                                                                Grid.Column="2"
+                                                                                MinWidth="0"
+                                                                                IsChecked="{x:Bind IsVisible, Mode=TwoWay}" />
+                                                                        </Grid>
+                                                                    </DataTemplate>
+                                                                </ListView.ItemTemplate>
+                                                            </ListView>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
                                     </controls3:SettingsCard>
                                 </controls3:SettingsExpander.Items>
                             </controls3:SettingsExpander>
@@ -1429,6 +1667,12 @@
                                     </TransitionCollection>
                                 </controls3:SettingsExpander.Transitions>
                                 <controls3:SettingsExpander.Items>
+                                    <controls3:SettingsCard Description="播放网易云歌曲时，如果已经下载过就直接播放本地文件" Header="优先播放已下载的歌曲">
+                                        <ToggleSwitch
+                                            MinWidth="10"
+                                            HorizontalAlignment="Right"
+                                            IsOn="{x:Bind hyplayer:XamlHelpers.Setting.preferDownloadedFile, Mode=TwoWay}" />
+                                    </controls3:SettingsCard>
                                     <controls3:SettingsCard Header="下载歌词">
                                         <ToggleSwitch
                                             MinWidth="10"

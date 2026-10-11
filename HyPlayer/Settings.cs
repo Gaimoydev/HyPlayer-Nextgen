@@ -74,6 +74,9 @@ namespace HyPlayer
         public bool enableCache { get => Playback.enableCache; set { Playback.enableCache = value; OnPropertyChanged(); } }
         public string cacheDir { get => Playback.cacheDir; set { Playback.cacheDir = value; OnPropertyChanged(); OnPropertyChanged(nameof(cacheDirIsCustom)); } }
         public bool cacheDirIsCustom => GetSettings<string>(nameof(cacheDir), null) is { } stored && !StorageMaintenance.IsSamePath(stored, ApplicationData.Current.LocalCacheFolder.Path);
+        public bool speedChangesPitch { get => Playback.speedChangesPitch; set { Playback.speedChangesPitch = value; OnPropertyChanged(); } }
+        public bool promptWeakNetwork { get => Playback.promptWeakNetwork; set { Playback.promptWeakNetwork = value; OnPropertyChanged(); } }
+        public bool promptPowerSaving { get => Playback.promptPowerSaving; set { Playback.promptPowerSaving = value; OnPropertyChanged(); } }
         public static readonly double[] CacheLimitPresets = [1, 5, 10, 15, 20];
         public double cacheLimitGB
         {
@@ -159,6 +162,13 @@ namespace HyPlayer
         public bool CompactPlayerPageBlurStatus { get => UI.CompactPlayerPageBlurStatus; set { UI.CompactPlayerPageBlurStatus = value; OnPropertyChanged(); } }
         public bool notClearMode { get => UI.notClearMode; set { UI.notClearMode = value; OnPropertyChanged(); } }
         public bool AutoHidePlaybar { get => UI.AutoHidePlaybar; set { UI.AutoHidePlaybar = value; OnPropertyChanged(); } }
+        public bool hidePlaybarOnHome { get => UI.hidePlaybarOnHome; set { UI.hidePlaybarOnHome = value; OnPropertyChanged(); } }
+        public string customUiFontFamily { get => UI.customUiFontFamily; set { if (UI.customUiFontFamily == (value ?? string.Empty)) return; UI.customUiFontFamily = value; OnPropertyChanged(); } }
+        public string backgroundImagePath { get => UI.backgroundImagePath; set { UI.backgroundImagePath = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasCustomBackground)); } }
+        public bool HasCustomBackground => !string.IsNullOrEmpty(UI.backgroundImagePath);
+        public double backgroundImageOpacity { get => UI.backgroundImageOpacity; set { UI.backgroundImageOpacity = value; OnPropertyChanged(); } }
+        public double backgroundImageBlur { get => UI.backgroundImageBlur; set { UI.backgroundImageBlur = value; OnPropertyChanged(); } }
+        public int backgroundImageStretch { get => UI.backgroundImageStretch; set { if (value < 0) return; UI.backgroundImageStretch = value; OnPropertyChanged(); } }
         public ExpandedControlStyle expandedControlStyle { get => UI.expandedControlStyle; set { UI.expandedControlStyle = value; OnPropertyChanged(); } }
         public bool expandedAutoCollapsePlaybar { get => UI.expandedAutoCollapsePlaybar; set { UI.expandedAutoCollapsePlaybar = value; OnPropertyChanged(); } }
         public int AutoHidePlaybarTime { get => UI.AutoHidePlaybarTime; set { UI.AutoHidePlaybarTime = value; OnPropertyChanged(); } }
@@ -257,6 +267,36 @@ namespace HyPlayer
             set
             {
                 SettingsBase.SetSettings(nameof(writedownloadFileInfo), value);
+                OnPropertyChanged();
+            }
+        }
+
+        public bool autoPlayOnLaunch
+        {
+            get => GetSettings(nameof(autoPlayOnLaunch), false);
+            set
+            {
+                SettingsBase.SetSettings(nameof(autoPlayOnLaunch), value);
+                OnPropertyChanged();
+            }
+        }
+
+        public bool rememberPlaybackPosition
+        {
+            get => GetSettings(nameof(rememberPlaybackPosition), true);
+            set
+            {
+                SettingsBase.SetSettings(nameof(rememberPlaybackPosition), value);
+                OnPropertyChanged();
+            }
+        }
+
+        public bool preferDownloadedFile
+        {
+            get => GetSettings(nameof(preferDownloadedFile), true);
+            set
+            {
+                SettingsBase.SetSettings(nameof(preferDownloadedFile), value);
                 OnPropertyChanged();
             }
         }
