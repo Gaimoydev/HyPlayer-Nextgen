@@ -210,6 +210,7 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
 
     private void TryPlan(TrackTransitionContext ctx)
     {
+        if (Math.Abs(_state.PlaybackSpeed - 1) > 0.001) return;
         if ((_vocalsA is { IsCompleted: false } || _vocalsB is { IsCompleted: false }) && (ctx.Duration - ctx.Position).TotalSeconds > 40) return;
         if (_analysisA is not { IsCompletedSuccessfully: true } || _analysisA.Result is not { } a) return;
         if (_analysisB is not { IsCompletedSuccessfully: true } || _analysisB.Result is not { } b) return;

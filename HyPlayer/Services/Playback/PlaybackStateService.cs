@@ -21,6 +21,14 @@ public partial class PlaybackStateService : ObservableObject
     [ObservableProperty]
     public partial bool IsTransitioning { get; set; }
 
+    private double _playbackSpeed = 1d;
+
+    public double PlaybackSpeed
+    {
+        get => _playbackSpeed;
+        set => SetProperty(ref _playbackSpeed, value);
+    }
+
     /// <summary>当前播放位置</summary>
     [ObservableProperty]
     public partial TimeSpan Position { get; set; }
