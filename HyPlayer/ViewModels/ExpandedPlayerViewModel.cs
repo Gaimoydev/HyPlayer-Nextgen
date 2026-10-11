@@ -21,6 +21,7 @@ namespace HyPlayer.ViewModels
         private readonly PlaybackStateService _state;
         private readonly ILyricService _lyricService;
         private readonly INotificationService _notification;
+        private readonly Windows.UI.Core.CoreDispatcher? _dispatcher = Windows.UI.Core.CoreWindow.GetForCurrentThread()?.Dispatcher;
         private readonly Setting _settings;
 
         public ExpandedPlayerViewModel(
@@ -140,6 +141,16 @@ namespace HyPlayer.ViewModels
         [RelayCommand]
         private void TogglePlaylist() => IsPlaylistVisible = !IsPlaylistVisible;
 
+        private void RunOnUIThread(Action action)
+        {
+            if (_dispatcher?.HasThreadAccess == true)
+            {
+                action();
+                return;
+            }
+            _ = _notification.InvokeOnUIThread(action);
+        }
+
         // ── Messenger registrations ───────────────────────────────
         [RequiresUnreferencedCode("This method requires the generated CommunityToolkit.Mvvm.Messaging.__Internals.__IMessengerExtensions type not to be removed to use the fast path. If this type is removed by the linker, or if the target recipient was created dynamically and was missed by the source generator, a slower fallback path using a compiled LINQ expression will be used. This will have more overhead in the first invocation of this method for any given recipient type. Alternatively, OnActivated() can be manually overwritten, and registration can be done individually for each required message for this recipient.")]
         [RequiresDynamicCode("This method requires the generated CommunityToolkit.Mvvm.Messaging.__Internals.__IMessengerExtensions type not to be removed to use the fast path. If that is present, the method is AOT safe, as the only methods being invoked to register the messages will be the ones produced by the source generator. If it isn't, this method will need to dynamically create the generic methods to register messages, which might not be available at runtime. Alternatively, OnActivated() can be manually overwritten, and registration can be done individually for each required message for this recipient.")]
@@ -160,7 +171,8 @@ namespace HyPlayer.ViewModels
 
             Messenger.Register<PlaybackStateChangedMessage>(this, (r, m) =>
             {
-                ((ExpandedPlayerViewModel)r).IsPlaying = m.IsPlaying;
+                var vm = (ExpandedPlayerViewModel)r;
+                vm.RunOnUIThread(() => vm.IsPlaying = m.IsPlaying);
             });
 
             Messenger.Register<CoverChangedMessage>(this, (_, _) =>
@@ -171,22 +183,26 @@ namespace HyPlayer.ViewModels
 
             Messenger.Register<LyricLoadedMessage>(this, (r, m) =>
             {
-                ((ExpandedPlayerViewModel)r).LyricInfo = m.Info;
+                var vm = (ExpandedPlayerViewModel)r;
+                vm.RunOnUIThread(() => vm.LyricInfo = m.Info);
             });
 
             Messenger.Register<LyricIndexChangedMessage>(this, (r, m) =>
             {
-                ((ExpandedPlayerViewModel)r).LyricIndex = m.Index;
+                var vm = (ExpandedPlayerViewModel)r;
+                vm.RunOnUIThread(() => vm.LyricIndex = m.Index);
             });
 
             Messenger.Register<SongLikeStatusChangedMessage>(this, (r, m) =>
             {
-                ((ExpandedPlayerViewModel)r).IsLiked = m.IsLiked;
+                var vm = (ExpandedPlayerViewModel)r;
+                vm.RunOnUIThread(() => vm.IsLiked = m.IsLiked);
             });
 
             Messenger.Register<PositionTickMessage>(this, (r, m) =>
             {
-                ((ExpandedPlayerViewModel)r).Position = m.Position;
+                var vm = (ExpandedPlayerViewModel)r;
+                vm.RunOnUIThread(() => vm.Position = m.Position);
             });
 
             // Sync initial state from services
