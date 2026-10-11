@@ -59,6 +59,26 @@ namespace HyPlayer.ViewModels
         }
 
         [RelayCommand]
+        private void OnDailyRecommendClicked()
+        {
+            _navigation.Navigate(typeof(SongListDetail), new NCPlayList
+            {
+                Cover = "ms-appx:/Assets/icon.png",
+                Creator = new NCUser
+                {
+                    Avatar = "https://p1.music.126.net/KxePid7qTvt6V2iYVy-rYQ==/109951165050882728.jpg",
+                    Id = "1",
+                    Name = "网易云音乐",
+                    Signature = "网易云音乐官方账号 "
+                },
+                IsDailyRecommend = true,
+                HasSubscribed = false,
+                Name = "每日歌曲推荐",
+                Description = "根据你的口味生成，每天6:00更新"
+            });
+        }
+
+        [RelayCommand]
         private void OnHeartBeatModeClicked()
         {
             _ = Api.EnterIntelligencePlay(new System.Threading.CancellationToken());
