@@ -114,9 +114,11 @@ public sealed partial class App : Application
         var setting = new Setting();
         var handler = NeteaseCloudMusicApiHandler.HttpClientHandler;
         handler.UseProxy = setting.EnableProxy;
-        var client = new HttpClient(handler);
+        var client = new HttpClient(new NetworkWatchHandler(handler));
         serviceCollection.AddSingleton(client);
-        serviceCollection.AddSingleton(new NeteaseCloudMusicApiHandler(client));
+        var api = new NeteaseCloudMusicApiHandler(client);
+        PodcastListApi.Register(api.Option);
+        serviceCollection.AddSingleton(api);
         serviceCollection.AddSingleton(new LastFMClient(new LastFMOptions() { ApiKey = LastFMConstants.APIKEY, ApiSecret = LastFMConstants.SECRET }, client));
         serviceCollection.AddSingleton(setting);
         serviceCollection.AddSingleton<AudioGraphPlayer>();
@@ -198,6 +200,7 @@ public sealed partial class App : Application
         {
             await SimpleCacher.InitializeAsync();
             StorageMaintenance.ScheduleTrim(TimeSpan.FromSeconds(30));
+            DownloadedTrackIndex.ScheduleScan(TimeSpan.FromSeconds(40));
             var sf = await ApplicationData.Current.LocalFolder.TryGetItemAsync("Romaji");
             if (sf != null) Ioc.Default.GetRequiredService<IUIStateService>().KawazuConv = new KawazuConverter(sf.Path);
         }
@@ -372,8 +375,11 @@ public sealed partial class App : Application
             }
 
             Window.Current.Content = rootFrame;
+            AppearanceCustomizer.ApplyFont();
         }
         MemoryGovernor.Attach(Window.Current);
+        KeyboardShortcuts.Attach(Window.Current.CoreWindow);
+        ResourceSaver.Attach();
 
         // 直接启动
         if (args is LaunchActivatedEventArgs)
@@ -391,29 +397,31 @@ public sealed partial class App : Application
             var _playlist = Ioc.Default.GetRequiredService<IPlaylistService>();
             var _localFileImport = Ioc.Default.GetRequiredService<ILocalFileImportService>();
             _playlist.PlaySourceId = "local";
-            Ioc.Default.GetRequiredService<IUIStateService>().IsExpanded = true;
             ApplicationData.Current.LocalSettings.Values["curPlayingListHistory"] = "[]";
 
             NavigateToRootPage();
             Window.Current.Activate();
             var _control = Ioc.Default.GetRequiredService<IPlaybackControlService>();
             var _player = Ioc.Default.GetRequiredService<AudioGraphPlayer>();
-            if (!_player.PlayerCreated)
-            {
-                Ioc.Default.GetRequiredService<IBackgroundTaskRunner>().Forget(_control.InitializeAsync(), "initialize player for file activation");
-            }
+            await _control.InitializeAsync();
+            _playlist.Clear();
+            HyPlayItem firstOpened = null;
             foreach (var storageItem in (args?.As<FileActivatedEventArgs>()).Files)
             {
-                var file = (StorageFile)storageItem;
+                if (storageItem is not StorageFile file) continue;
                 await _localFileImport.RegisterFutureAccessAsync(file);
                 var item = await _playlist.LoadStorageFileAsync(file);
                 _playlist.AppendItem(item);
+                firstOpened ??= item;
             }
 
             _playlist.PlaySourceId = "local";
             _playlist.NotifyAppendDone();
-            if (_playlist.Items.Count > 0)
-                await _playlist.MoveToAsync(_playlist.Items[0]);
+            if (firstOpened is not null)
+            {
+                await _playlist.MoveToAsync(firstOpened);
+                (Ioc.Default.GetRequiredService<IUIStateService>().BarPlayBar as PlayBar)?.ShowExpandedPlayer();
+            }
         }
 
 
@@ -444,14 +452,14 @@ public sealed partial class App : Application
     private async void OnSuspending(object sender, SuspendingEventArgs e)
     {
         var deferral = e.SuspendingOperation.GetDeferral();
+        if (Ioc.Default.GetRequiredService<Setting>().rememberPlaybackPosition)
+            Ioc.Default.GetRequiredService<IPlaybackControlService>().SaveResumePoint();
         var _playlist = Ioc.Default.GetRequiredService<IPlaylistService>();
         var neteaseItems = _playlist.Items
-            .Where(t => t.ItemType == HyPlayItemType.Netease)
+            .Where(t => t.ItemType is HyPlayItemType.Netease or HyPlayItemType.Radio && !string.IsNullOrEmpty(t.Id))
             .ToList();
         var currentItem = _playlist.NowPlayingItem;
-        var currentIndex = currentItem?.ItemType == HyPlayItemType.Netease
-            ? neteaseItems.IndexOf(currentItem)
-            : -1;
+        var currentIndex = currentItem is not null ? neteaseItems.IndexOf(currentItem) : -1;
         await HistoryManagement.SetcurPlayingListHistory([.. neteaseItems.Select(t => t.Id)], currentIndex);
         (Ioc.Default.GetRequiredService<IUIStateService>().XboxGameBarWidget as XboxGameBarWidget)?.Close();
         deferral.Complete();
