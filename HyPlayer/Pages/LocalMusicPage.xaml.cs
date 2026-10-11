@@ -77,10 +77,16 @@ public sealed partial class LocalMusicPage : Page, INotifyPropertyChanged
         cancellationTokenSource.Dispose();
     }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e)
+    protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         DownloadPageFrame.Navigate(typeof(DownloadPage));
+        if (localHyItems.Count > 0 || CurrentFileScanTask is { IsCompleted: false }) return;
+        if (await LocalMusicCache.LoadAsync() is not { Count: > 0 } cached) return;
+        ListBoxLocalMusicContainer.SelectionChanged -= ListBoxLocalMusicContainer_SelectionChanged;
+        foreach (var item in cached) localHyItems.Add(item);
+        NotificationText = $"共 {cached.Count} 首音乐（上次扫描的结果，点击“开始扫描”可刷新）";
+        ListBoxLocalMusicContainer.SelectionChanged += ListBoxLocalMusicContainer_SelectionChanged;
     }
 
     private async void Playall_Click(object sender, RoutedEventArgs e)
@@ -168,6 +174,7 @@ public sealed partial class LocalMusicPage : Page, INotifyPropertyChanged
             }
         }
         NotificationText = "扫描完成, 共 " + files.Count + " 首音乐";
+        _ = LocalMusicCache.SaveAsync(localHyItems.ToList());
         FileLoadingIndicateRing.IsActive = false;
         FileLoadingIndicateRing.Visibility = Visibility.Collapsed;
         ListBoxLocalMusicContainer.SelectionChanged += ListBoxLocalMusicContainer_SelectionChanged;
