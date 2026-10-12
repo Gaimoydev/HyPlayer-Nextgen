@@ -84,6 +84,27 @@ DoubleAnimation verticalAnimation;
         _player.OnGlobalPlaybackStatusChanged += Player_OnGlobalPlaybackStatusChanged;
         _state.PropertyChanged += State_PropertyChanged;
         Loaded += (_, _) => RefreshTransitionEffect();
+        SizeChanged += (_, _) => UpdateProgressClearance();
+        SongInfoTag.SizeChanged += (_, _) => UpdateProgressClearance();
+        SongInfoText.SizeChanged += (_, _) => UpdateProgressClearance();
+        PlayProgress.SizeChanged += (_, _) => UpdateProgressClearance();
+    }
+
+    private void UpdateProgressClearance()
+    {
+        if (!IsLoaded || SongInfoTag.ActualWidth <= 0 || PlayProgress.ActualWidth <= 0) return;
+        try
+        {
+            var tag = SongInfoTag.TransformToVisual(this).TransformBounds(new Windows.Foundation.Rect(0, 0, SongInfoTag.ActualWidth, SongInfoTag.ActualHeight));
+            var progress = PlayProgress.TransformToVisual(this).TransformBounds(new Windows.Foundation.Rect(0, 0, PlayProgress.ActualWidth, PlayProgress.ActualHeight));
+            var overlapsVertically = tag.Bottom > progress.Top && tag.Top < progress.Bottom;
+            var clearance = overlapsVertically ? Math.Max(0, tag.Right + 14 - progress.Left) : 0;
+            if (Math.Abs(PlayProgress.Padding.Left - clearance) > 0.5)
+                PlayProgress.Padding = new Thickness(clearance, 0, 0, 0);
+        }
+        catch
+        {
+        }
     }
 
     private HyPlayer.Controls.Primitives.PlayBarTransitionEffect _transitionEffect;
