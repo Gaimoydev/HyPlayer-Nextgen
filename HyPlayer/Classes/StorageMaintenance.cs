@@ -102,6 +102,83 @@ public static class StorageMaintenance
         }
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> AccessCache = new(StringComparer.OrdinalIgnoreCase);
+
+    public static bool IsUsableFolder(string? path, string? accessToken)
+    {
+        if (string.IsNullOrEmpty(path) || BelongsToOtherPackage(path)) return false;
+        return AccessCache.GetOrAdd(path, p => CheckAccess(p, accessToken));
+    }
+
+    public static void ForgetAccess(string? path)
+    {
+        if (!string.IsNullOrEmpty(path)) AccessCache.TryRemove(path, out _);
+    }
+
+    private static bool CheckAccess(string path, string? accessToken)
+    {
+        try
+        {
+            if (IsInsidePackageData(path)) return true;
+            var music = KnownFolders.MusicLibrary.Path;
+            if (!string.IsNullOrEmpty(music) && IsNestedPath(path, music) && path.StartsWith(Path.TrimEndingDirectorySeparator(music), StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            var list = Windows.Storage.AccessCache.StorageApplicationPermissions.FutureAccessList;
+            if (accessToken != null && list.ContainsItem(accessToken))
+            {
+                var granted = list.GetFolderAsync(accessToken).AsTask().GetAwaiter().GetResult();
+                if (IsSamePath(granted.Path, path) || IsNestedPath(path, granted.Path) && path.StartsWith(Path.TrimEndingDirectorySeparator(granted.Path), StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            foreach (var entry in list.Entries)
+            {
+                try
+                {
+                    var folder = list.GetFolderAsync(entry.Token).AsTask().GetAwaiter().GetResult();
+                    if (path.StartsWith(Path.TrimEndingDirectorySeparator(folder.Path), StringComparison.OrdinalIgnoreCase)) return true;
+                }
+                catch
+                {
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            StorageFolder.GetFolderFromPathAsync(path).AsTask().GetAwaiter().GetResult();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsInsidePackageData(string path)
+    {
+        var own = Path.TrimEndingDirectorySeparator(Path.GetDirectoryName(ApplicationData.Current.LocalFolder.Path) ?? string.Empty);
+        return own.Length > 0 && (Path.TrimEndingDirectorySeparator(path) + Path.DirectorySeparatorChar).StartsWith(own + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool BelongsToOtherPackage(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        var packages = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Packages") + Path.DirectorySeparatorChar;
+        if (!path.StartsWith(packages, StringComparison.OrdinalIgnoreCase)) return false;
+        var own = Path.Combine(packages, Windows.ApplicationModel.Package.Current.Id.FamilyName) + Path.DirectorySeparatorChar;
+        return !(Path.TrimEndingDirectorySeparator(path) + Path.DirectorySeparatorChar).StartsWith(own, StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool IsSamePath(string? a, string? b) =>
         a is not null && b is not null &&
         string.Equals(Path.TrimEndingDirectorySeparator(a), Path.TrimEndingDirectorySeparator(b), StringComparison.OrdinalIgnoreCase);

@@ -73,7 +73,7 @@ namespace HyPlayer
         public string ABEndPointFriendlyValue => Playback.ABEndPointFriendlyValue;
         public bool enableCache { get => Playback.enableCache; set { Playback.enableCache = value; OnPropertyChanged(); } }
         public string cacheDir { get => Playback.cacheDir; set { Playback.cacheDir = value; OnPropertyChanged(); OnPropertyChanged(nameof(cacheDirIsCustom)); } }
-        public bool cacheDirIsCustom => GetSettings<string>(nameof(cacheDir), null) is { } stored && !StorageMaintenance.IsSamePath(stored, ApplicationData.Current.LocalCacheFolder.Path);
+        public bool cacheDirIsCustom => !StorageMaintenance.IsSamePath(cacheDir, ApplicationData.Current.LocalCacheFolder.Path);
         public bool speedChangesPitch { get => Playback.speedChangesPitch; set { Playback.speedChangesPitch = value; OnPropertyChanged(); } }
         public bool promptWeakNetwork { get => Playback.promptWeakNetwork; set { Playback.promptWeakNetwork = value; OnPropertyChanged(); } }
         public bool promptPowerSaving { get => Playback.promptPowerSaving; set { Playback.promptPowerSaving = value; OnPropertyChanged(); } }
@@ -323,10 +323,12 @@ namespace HyPlayer
         {
             get
             {
-                return GetSettings<string>(nameof(downloadDir), null) ?? DefaultDownloadDir;
+                var stored = GetSettings<string>(nameof(downloadDir), null);
+                return stored is not null && StorageMaintenance.IsUsableFolder(stored, "downloadFolder") ? stored : DefaultDownloadDir;
             }
             set
             {
+                StorageMaintenance.ForgetAccess(value);
                 SettingsBase.SetSettings(nameof(downloadDir), value);
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(downloadDirIsCustom));
@@ -353,7 +355,7 @@ namespace HyPlayer
             }
         }
 
-        public bool downloadDirIsCustom => GetSettings<string>(nameof(downloadDir), null) is { } stored && !StorageMaintenance.IsSamePath(stored, DefaultDownloadDir);
+        public bool downloadDirIsCustom => !StorageMaintenance.IsSamePath(downloadDir, DefaultDownloadDir);
 
         public string downloadFileName
         {
@@ -381,7 +383,8 @@ namespace HyPlayer
             {
                 try
                 {
-                    return GetSettings(nameof(searchingDir), downloadDir);
+                    var stored = GetSettings<string>(nameof(searchingDir), null);
+                    return stored is not null && StorageMaintenance.IsUsableFolder(stored, "searchingFolder") ? stored : downloadDir;
                 }
                 catch
                 {
@@ -390,13 +393,14 @@ namespace HyPlayer
             }
             set
             {
+                StorageMaintenance.ForgetAccess(value);
                 SettingsBase.SetSettings(nameof(searchingDir), value);
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(searchingDirIsCustom));
             }
         }
 
-        public bool searchingDirIsCustom => GetSettings<string>(nameof(searchingDir), null) is { } stored && !StorageMaintenance.IsSamePath(stored, downloadDir);
+        public bool searchingDirIsCustom => !StorageMaintenance.IsSamePath(searchingDir, downloadDir);
 
         public int maxDownloadCount
         {

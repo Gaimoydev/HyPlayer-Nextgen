@@ -312,6 +312,7 @@ public sealed partial class Settings : Page
         folderPicker.FileTypeFilter.Add("*");
         var folder = await folderPicker.PickSingleFolderAsync();
         if (folder == null) return;
+        if (!await FolderAccessGuard.EnsureWritableAsync(folder, "下载的歌曲")) return;
         if (!await OfferPathMigrationAsync("下载的歌曲", _setting.downloadDir, folder, StorageContentKind.Music)) return;
         StorageApplicationPermissions.FutureAccessList.AddOrReplace("downloadFolder", folder);
         _setting.downloadDir = folder.Path;
@@ -326,6 +327,7 @@ public sealed partial class Settings : Page
         folderPicker.FileTypeFilter.Add("*");
         var folder = await folderPicker.PickSingleFolderAsync();
         if (folder == null) return;
+        if (!await FolderAccessGuard.EnsureWritableAsync(folder, "本地音乐索引")) return;
         if (!await OfferPathMigrationAsync("本地音乐", _setting.searchingDir, folder, StorageContentKind.Music)) return;
         StorageApplicationPermissions.FutureAccessList.AddOrReplace("searchingFolder", folder);
         _setting.searchingDir = folder.Path;
@@ -487,6 +489,7 @@ public sealed partial class Settings : Page
         folderPicker.FileTypeFilter.Add("*");
         var folder = await folderPicker.PickSingleFolderAsync();
         if (folder == null) return;
+        if (!await FolderAccessGuard.EnsureWritableAsync(folder, "缓存")) return;
         if (!await OfferPathMigrationAsync("缓存", _setting.cacheDir, folder, StorageContentKind.Cache)) return;
         StorageApplicationPermissions.FutureAccessList.AddOrReplace("cacheFolder", folder);
         _setting.cacheDir = folder.Path;

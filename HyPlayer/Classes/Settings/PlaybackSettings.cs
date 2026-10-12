@@ -233,7 +233,8 @@ namespace HyPlayer.Classes.Settings
             {
                 try
                 {
-                    return GetSettings(nameof(cacheDir), ApplicationData.Current.LocalCacheFolder.Path);
+                    var stored = GetSettings(nameof(cacheDir), ApplicationData.Current.LocalCacheFolder.Path);
+                    return StorageMaintenance.IsUsableFolder(stored, "cacheFolder") ? stored : ApplicationData.Current.LocalCacheFolder.Path;
                 }
                 catch
                 {
@@ -242,6 +243,7 @@ namespace HyPlayer.Classes.Settings
             }
             set
             {
+                StorageMaintenance.ForgetAccess(value);
                 SettingsBase.SetSettings(nameof(cacheDir), value);
             }
         }

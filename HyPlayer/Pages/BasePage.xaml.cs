@@ -183,6 +183,7 @@ public sealed partial class BasePage : Page
 
         // 不要阻塞页面加载
         _ = UpdateManager.PopupVersionCheck(true);
+        _ = FolderAccessGuard.CheckSavedFoldersAsync();
         // Fire and Forget
         _ = LoadLoginData();
         /*

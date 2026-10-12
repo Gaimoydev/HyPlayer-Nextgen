@@ -128,7 +128,8 @@ public sealed partial class ModelManager : ObservableObject
     public partial int GpuChoiceIndex { get; set; }
 
     public bool IsCustomFolder => !string.IsNullOrEmpty(FolderPath);
-    public string FolderDisplayPath => IsCustomFolder ? FolderPath : Path.Combine(ApplicationData.Current.LocalCacheFolder.Path, "Models");
+    public bool IsCustomFolderAccessible => IsCustomFolder && StorageApplicationPermissions.FutureAccessList.ContainsItem(FolderToken);
+    public string FolderDisplayPath => IsCustomFolderAccessible ? FolderPath : Path.Combine(ApplicationData.Current.LocalCacheFolder.Path, "Models");
 
     partial void OnFolderPathChanged(string value) => SettingsBase.SetSettings(nameof(FolderPath), value);
 
