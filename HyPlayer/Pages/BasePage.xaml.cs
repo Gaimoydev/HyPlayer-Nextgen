@@ -71,6 +71,7 @@ public sealed partial class BasePage : Page
         _state = Ioc.Default.GetRequiredService<PlaybackStateService>();
         _player = Ioc.Default.GetRequiredService<AudioGraphPlayer>();
         InitializeComponent();
+        if (!Windows.ApplicationModel.Package.Current.Id.Name.EndsWith(".Dev")) AppTitleBar.Subtitle = string.Empty;
         BaseFrame.Navigated += (_, _) => MemoryReclaimer.Schedule();
         Loaded += (_, _) => (Ioc.Default.GetRequiredService<IUIStateService>().PageMain as MainPage)?.UpdateHomePlaybar();
         Ioc.Default.GetRequiredService<IUIStateService>().PageBase = this;
@@ -197,6 +198,7 @@ public sealed partial class BasePage : Page
     private void SetLoginPending(bool pending)
     {
         _autoLoginPending = pending;
+        if (!pending) ToolTipService.SetToolTip(NavItemLogin, null);
         if (_auth.IsLoggedIn) return;
         if (pending)
         {
