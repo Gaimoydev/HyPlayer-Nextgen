@@ -45,6 +45,7 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
     private bool _committed;
     private bool _mapBusy;
     private bool _planHadVocals;
+    private int _mapAFailures;
     private int _mapBFailures;
     private bool _forcedHandBack;
     private bool _watchdogFired;
@@ -105,7 +106,7 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
         if (_plan is not null && !_preparing && _engine is null)
         {
             var exitRemaining = ctx.Duration.TotalSeconds - _plan.AExit;
-            if (remaining.TotalSeconds <= exitRemaining + 14)
+            if (remaining.TotalSeconds <= exitRemaining + 20)
             {
                 _preparing = true;
                 ctx.TaskRunner.Forget(PrepareAsync(ctx), "prepare automix transition");
@@ -244,12 +245,12 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
             var rate = (int)Graph.SampleRate;
             if (rate <= 0) return;
 
-            var handoverStart = Math.Max(0, plan.AExit - 6);
+            var handoverStart = Math.Max(0, plan.AExit - 10);
             using var streamA = await _analysis.OpenLocalAudioAsync(current);
             using var streamB = await _analysis.OpenLocalAudioAsync(next);
             if (streamA is null || streamB is null) return;
             var pcmA = await AudioDecoder.DecodeAsync(streamA, (uint)rate, 2, TimeSpan.FromSeconds(handoverStart), TimeSpan.Zero, _cts.Token);
-            var bLength = plan.BEntry + plan.Overlap * plan.Rate + plan.RampBack * Math.Max(1, plan.Rate) + 15;
+            var bLength = plan.BEntry + plan.Overlap * plan.Rate + plan.RampBack * Math.Max(1, plan.Rate) + 20;
             var bStart = Math.Max(0, plan.BEntry - 1);
             var pcmB = await AudioDecoder.DecodeAsync(streamB, (uint)rate, 2, TimeSpan.FromSeconds(bStart), TimeSpan.FromSeconds(bLength - bStart), _cts.Token);
             var regionA = new MixRegion { Samples = pcmA.Samples, SampleRate = pcmA.SampleRate, StartSeconds = handoverStart };
@@ -274,6 +275,7 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
             _preloader.Take();
             _committed = false;
             _engine = engine;
+            _mapAFailures = 0;
             _mapBFailures = 0;
             _forcedHandBack = false;
             _watchdogFired = false;
@@ -340,9 +342,17 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
                 try
                 {
                     await Task.Delay(400);
-                    var map = await Task.Run(() => TapAligner.FindMap(tapA, regionA, expected + (long)(Graph.SampleRate * 0.4), (int)Graph.SampleRate * 2));
-                    if (map is not null) engine.MapA = map.Value;
-                    AutoMixLog.Write($"map A: {(map is null ? "not found" : map.Value.ToString("0"))}");
+                    var map = await Task.Run(() => TapAligner.FindMap(tapA, regionA, expected + (long)(Graph.SampleRate * 0.4)));
+                    if (map is not null)
+                    {
+                        engine.MapA = map.Value;
+                        var actual = regionA.StartSeconds + (tapA.TotalFrames + map.Value) / Graph.SampleRate;
+                        AutoMixLog.Write($"map A: {map.Value:0} after {_mapAFailures} misses, position {ctx.Position.TotalSeconds:0.00}s plays content {actual:0.00}s");
+                    }
+                    else if (_mapAFailures++ == 0)
+                    {
+                        AutoMixLog.Write("map A: not found, retrying");
+                    }
                 }
                 finally
                 {
@@ -374,7 +384,7 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
                     await Task.Delay(600);
                     var expected = (long)Math.Round(engine.BContentIndex);
                     if (_regionB is not { } regionB) return;
-                    var map = await Task.Run(() => TapAligner.FindMap(tapB, regionB, expected, (int)Graph.SampleRate * (1 + _mapBFailures)));
+                    var map = await Task.Run(() => TapAligner.FindMap(tapB, regionB, expected));
                     if (map is not null) engine.MapB = map.Value;
                     else _mapBFailures++;
                     AutoMixLog.Write($"map B: {(map is null ? "not found" : map.Value.ToString("0"))}");
@@ -399,7 +409,7 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
     private void TryForceHandBack(AutoMixEngine engine)
     {
         if (engine.Stage is AutoMixStage.Done or AutoMixStage.Aborted) return;
-        var limit = engine.Plan.Overlap + engine.Plan.RampBack + 12;
+        var limit = engine.Plan.Overlap + engine.Plan.RampBack + 16;
         var elapsed = engine.SecondsSinceBStarted;
         if (elapsed > limit + 8 || _incoming is null && engine.BStarted)
         {

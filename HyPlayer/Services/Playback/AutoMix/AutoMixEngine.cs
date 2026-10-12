@@ -64,6 +64,8 @@ public sealed class AutoMixEngine : IMixRenderSource, IDisposable
     private double _nodeSpeedB = 1;
     private double _predictedNodeIndexB = double.NaN;
     private int _alignStableQuanta;
+    private bool _alignChased;
+    private bool _alignRefined;
     private long _startRenderedB = -1;
     private double _limiterGain = 1;
     private volatile bool _forceHandBack;
@@ -197,6 +199,7 @@ public sealed class AutoMixEngine : IMixRenderSource, IDisposable
         {
             _predictedNodeIndexB = TapB.TotalFrames + MapB;
             SetNodeSpeed(1);
+            _alignChased = Math.Abs(_predictedNodeIndexB - _voiceB.ContentIndex) > _sampleRate * 0.05;
         }
         else
         {
@@ -207,12 +210,21 @@ public sealed class AutoMixEngine : IMixRenderSource, IDisposable
         {
             SetNodeSpeed(1);
             if (++_alignStableQuanta < 2) return;
+            if (_alignChased && !_alignRefined)
+            {
+                _alignRefined = true;
+                _alignStableQuanta = 0;
+                _predictedNodeIndexB = double.NaN;
+                MapB = double.NaN;
+                Stage = AutoMixStage.RampBack;
+                return;
+            }
             _player.SetVolume(_sourceB, _volumeB);
             _pendingHandBack = true;
             return;
         }
         _alignStableQuanta = 0;
-        var correction = Math.Clamp(-delta / (_sampleRate * 0.25), -0.25, 0.25);
+        var correction = Math.Clamp(-delta / (_sampleRate * 0.25), -0.5, 1);
         var maxStep = Math.Abs(delta) / quantum;
         if (Math.Abs(correction) > maxStep) correction = Math.Sign(correction) * maxStep;
         SetNodeSpeed(1 + correction);
