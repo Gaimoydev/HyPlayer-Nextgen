@@ -76,7 +76,7 @@ public static class RechunkedAudioSource
         try
         {
             var stream = await file.OpenReadAsync();
-            if (await HasShortFramesAsync(stream) && TryCreate(stream) is { } rechunked) return rechunked;
+            if (await TryCreateLocalAsync(stream) is { } rechunked) return rechunked;
             stream.Dispose();
         }
         catch
@@ -87,8 +87,17 @@ public static class RechunkedAudioSource
 
     public static async Task<MediaSource> FromStreamAsync(IRandomAccessStream stream, Func<MediaSource> fallback)
     {
-        if (await HasShortFramesAsync(stream) && TryCreate(stream) is { } rechunked) return rechunked;
+        if (await TryCreateLocalAsync(stream) is { } rechunked) return rechunked;
         return fallback();
+    }
+
+    private static async Task<MediaSource?> TryCreateLocalAsync(IRandomAccessStream stream)
+    {
+        var locator = await FlacFrameLocator.OpenAsync(stream);
+        if (locator is null) return null;
+        var shortFrames = locator.MaxBlockSize / (double)locator.SampleRate < MinimumFrameSeconds;
+        if (!shortFrames && locator.HasSeekTable) return null;
+        return TryCreate(stream, locator.HasSeekTable ? null : locator);
     }
 
     public static async Task<MediaSource> FromDownloadAsync(Windows.Networking.BackgroundTransfer.DownloadOperation operation)
@@ -135,10 +144,10 @@ public static class RechunkedAudioSource
         return rate > 0 && maxBlock > 0 && maxBlock / (double)rate < MinimumFrameSeconds;
     }
 
-    public static MediaSource? TryCreate(IRandomAccessStream stream)
+    public static MediaSource? TryCreate(IRandomAccessStream stream, FlacFrameLocator? locator = null)
     {
         if (!EnsureInitialized()) return null;
-        var decoder = Decoder.TryOpen(stream);
+        var decoder = Decoder.TryOpen(stream, locator);
         if (decoder is null) return null;
 
         var properties = AudioEncodingProperties.CreatePcm(decoder.SampleRate, decoder.Channels, 32);
@@ -185,6 +194,7 @@ public static class RechunkedAudioSource
     private sealed unsafe class Decoder : IDisposable
     {
         private void* _reader;
+        private readonly FlacFrameLocator? _locator;
         private readonly object _lock = new();
         private readonly int _bytesPerFrame;
         private readonly int _chunkBytes;
@@ -192,14 +202,16 @@ public static class RechunkedAudioSource
         private int _pendingLength;
         private TimeSpan _nextTimestamp;
         private bool _ended;
+        private bool _started;
 
         public uint SampleRate { get; }
         public uint Channels { get; }
         public TimeSpan Duration { get; }
 
-        private Decoder(void* reader, uint rate, uint channels, TimeSpan duration)
+        private Decoder(void* reader, uint rate, uint channels, TimeSpan duration, FlacFrameLocator? locator)
         {
             _reader = reader;
+            _locator = locator is not null && locator.SampleRate == rate && duration > TimeSpan.Zero ? locator : null;
             SampleRate = rate;
             Channels = channels;
             Duration = duration;
@@ -208,7 +220,7 @@ public static class RechunkedAudioSource
             _pending = new byte[_chunkBytes * 2];
         }
 
-        public static Decoder? TryOpen(IRandomAccessStream stream)
+        public static Decoder? TryOpen(IRandomAccessStream stream, FlacFrameLocator? locator)
         {
             void* unknown = null, byteStream = null, reader = null, type = null, current = null;
             try
@@ -235,7 +247,7 @@ public static class RechunkedAudioSource
                 PropVariant duration = default;
                 var durationKey = DurationKey;
                 ((delegate* unmanaged[Stdcall]<void*, uint, Guid*, PropVariant*, int>)VTable(reader)[12])(reader, MediaSourceIndex, &durationKey, &duration);
-                var decoder = new Decoder(reader, rate, channels, TimeSpan.FromTicks(duration.Value));
+                var decoder = new Decoder(reader, rate, channels, TimeSpan.FromTicks(duration.Value), locator);
                 reader = null;
                 return decoder;
             }
@@ -258,12 +270,39 @@ public static class RechunkedAudioSource
             lock (_lock)
             {
                 if (_reader is null) return;
-                var variant = new PropVariant { Type = VtI8, Value = position.Ticks };
+                if (!_started) ReadSample();
+                var request = position;
+                long skip = 0;
+                if (_locator is not null)
+                {
+                    var target = (long)(position.TotalSeconds * SampleRate);
+                    if (_locator.TryLocate(target, out var frameSample, out var frameOffset))
+                    {
+                        var span = (double)(_locator.Size - _locator.AudioStart);
+                        request = TimeSpan.FromTicks((long)(Math.Max(0, frameOffset - 8 - _locator.AudioStart) / span * Duration.Ticks));
+                        skip = Math.Max(0, target - frameSample);
+                    }
+                }
+                var variant = new PropVariant { Type = VtI8, Value = request.Ticks };
                 var empty = Guid.Empty;
                 ((delegate* unmanaged[Stdcall]<void*, Guid*, PropVariant*, int>)VTable(_reader)[8])(_reader, &empty, &variant);
                 _pendingLength = 0;
-                _nextTimestamp = position;
                 _ended = false;
+                while (skip > 0 && !_ended)
+                {
+                    var available = _pendingLength / _bytesPerFrame;
+                    if (available == 0)
+                    {
+                        ReadSample();
+                        continue;
+                    }
+                    var drop = (int)Math.Min(available, skip);
+                    var bytes = drop * _bytesPerFrame;
+                    System.Buffer.BlockCopy(_pending, bytes, _pending, 0, _pendingLength - bytes);
+                    _pendingLength -= bytes;
+                    skip -= drop;
+                }
+                _nextTimestamp = position;
             }
         }
 
@@ -293,6 +332,7 @@ public static class RechunkedAudioSource
             uint actual = 0, flags = 0;
             long timestamp = 0;
             void* sample = null;
+            _started = true;
             var hr = ((delegate* unmanaged[Stdcall]<void*, uint, uint, uint*, uint*, long*, void**, int>)VTable(_reader)[9])(
                 _reader, FirstAudioStream, 0, &actual, &flags, &timestamp, &sample);
             if (hr < 0 || (flags & EndOfStreamFlag) != 0)
@@ -311,7 +351,7 @@ public static class RechunkedAudioSource
                 if (((delegate* unmanaged[Stdcall]<void*, byte**, uint*, uint*, int>)VTable(buffer)[3])(buffer, &data, &max, &length) < 0) return;
                 try
                 {
-                    if (_pendingLength == 0) _nextTimestamp = TimeSpan.FromTicks(timestamp);
+                    if (_pendingLength == 0 && _locator is null) _nextTimestamp = TimeSpan.FromTicks(timestamp);
                     if (_pendingLength + (int)length > _pending.Length) Array.Resize(ref _pending, Math.Max(_pending.Length * 2, _pendingLength + (int)length));
                     new ReadOnlySpan<byte>(data, (int)length).CopyTo(_pending.AsSpan(_pendingLength));
                     _pendingLength += (int)length;
