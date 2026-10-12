@@ -46,8 +46,8 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
     private bool _mapBusy;
     private bool _planHadVocals;
     private int _mapBFailures;
-    private DateTime _bStartedAt;
     private bool _forcedHandBack;
+    private bool _watchdogFired;
     private AutoMixStage _lastStage = AutoMixStage.Waiting;
     private bool _fallbackFading;
     private bool _disposed;
@@ -185,28 +185,26 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
         {
             lyric = Array.Empty<(double, double)>();
         }
-        IReadOnlyList<(double start, double end)>? model = null;
+        VocalActivity? activity = null;
         try
         {
-            model = await _analysis.AnalyzeVocalsAsync(item, outro, _cts.Token);
+            activity = await _analysis.AnalyzeVocalsAsync(item, outro, _cts.Token);
         }
         catch
         {
         }
-        var window = outro ? _analysis.TryGetCached(item)?.VocalOutroWindow : _analysis.TryGetCached(item)?.VocalIntroWindow;
-        if (model is null || window is not { Length: 2 }) return lyric.Select(r => (r.Start, r.End)).ToList();
-        var merged = new List<(double, double)>();
-        foreach (var (start, end) in lyric)
+        var fused = VocalActivity.Fuse(lyric, activity);
+        if (activity is not null)
         {
-            if (start < window[0]) merged.Add((start, Math.Min(end, window[0])));
-            if (end > window[1]) merged.Add((Math.Max(start, window[1]), end));
+            var lyricInWindow = lyric.Count(r => r.End > activity.Start && r.Start < activity.End);
+            var inWindow = fused.Where(r => r.End > activity.Start && r.Start < activity.End);
+            AutoMixLog.Write($"vocals {(outro ? "outro" : "intro")} {item.Name} {activity.Start:0.0}-{activity.End:0.0}s: lyrics {lyricInWindow} lines, model {Describe(activity.Regions(0.12, 0.06))} -> {Describe(inWindow)}");
         }
-        merged.AddRange(model.Select(r => (r.start, r.end)));
-        merged.Sort((x, y) => x.Item1.CompareTo(y.Item1));
-        var lyricInWindow = lyric.Count(r => r.End > window[0] && r.Start < window[1]);
-        AutoMixLog.Write($"vocals {(outro ? "outro" : "intro")} {item.Name} {window[0]:0.0}-{window[1]:0.0}s: lyrics {lyricInWindow} lines, model {string.Join(" ", model.Select(r => $"[{r.start:0.0}-{r.end:0.0}]"))}");
-        return merged;
+        return fused.Select(r => (r.Start, r.End)).ToList();
     }
+
+    private static string Describe(IEnumerable<(double Start, double End)> regions) =>
+        string.Join(" ", regions.Select(r => $"[{r.Start:0.0}-{r.End:0.0}]"));
 
     private void TryPlan(TrackTransitionContext ctx)
     {
@@ -277,8 +275,8 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
             _committed = false;
             _engine = engine;
             _mapBFailures = 0;
-            _bStartedAt = DateTime.MinValue;
             _forcedHandBack = false;
+            _watchdogFired = false;
             _lastStage = AutoMixStage.Waiting;
             _renderer = Graph.CreateMixRenderer(engine);
             _hook = engine.OnQuantum;
@@ -353,7 +351,6 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
             }, "align automix outgoing");
         }
 
-        if (engine.BStarted && _bStartedAt == DateTime.MinValue) _bStartedAt = DateTime.UtcNow;
         if (engine.BStarted && !_state.IsTransitioning && !engine.OutgoingFinished)
             SetTransitioning(true);
 
@@ -403,10 +400,11 @@ public sealed partial class AutoMixTransition : ITrackTransition, IDisposable
     {
         if (engine.Stage is AutoMixStage.Done or AutoMixStage.Aborted) return;
         var limit = engine.Plan.Overlap + engine.Plan.RampBack + 12;
-        var elapsed = _bStartedAt == DateTime.MinValue ? 0 : (DateTime.UtcNow - _bStartedAt).TotalSeconds;
+        var elapsed = engine.SecondsSinceBStarted;
         if (elapsed > limit + 8 || _incoming is null && engine.BStarted)
         {
-            AutoMixLog.Write($"watchdog abort at stage {engine.Stage} after {elapsed:0.0}s");
+            if (!_watchdogFired) AutoMixLog.Write($"watchdog abort at stage {engine.Stage} after {elapsed:0.0}s");
+            _watchdogFired = true;
             engine.RequestAbort();
             return;
         }

@@ -27,9 +27,9 @@ public sealed class TrackAnalysis
     public double EnvelopeRate { get; set; } = 10;
     public string VocalAnalyzer { get; set; } = string.Empty;
     public double[]? VocalIntroWindow { get; set; }
-    public double[]? VocalIntro { get; set; }
+    public double[]? VocalIntroCurve { get; set; }
     public double[]? VocalOutroWindow { get; set; }
-    public double[]? VocalOutro { get; set; }
+    public double[]? VocalOutroCurve { get; set; }
 
     public bool HasBeatGrid => Beats.Length >= 16 && Bpm > 0;
 }

@@ -18,8 +18,6 @@ public sealed class MdxVocalAnalyzer : IVocalAnalyzer
     private const int DimF = 3072;
     private const int DimT = 256;
     private const int Margin = 16;
-    private const double EnterRatio = 0.12;
-    private const double ExitRatio = 0.06;
 
     private readonly ModelManager _models;
 
@@ -31,12 +29,12 @@ public sealed class MdxVocalAnalyzer : IVocalAnalyzer
     public string Id => "mdx";
     public bool IsAvailable => _models.IsUsable(ModelCatalog.VocalId);
 
-    public async Task<IReadOnlyList<(double start, double end)>?> AnalyzeAsync(float[] stereo, int sampleRate, double offsetSeconds, CancellationToken ct)
+    public async Task<VocalActivity?> AnalyzeAsync(float[] stereo, int sampleRate, double offsetSeconds, CancellationToken ct)
     {
         if (sampleRate != SampleRate || stereo.Length < SampleRate * 2 * 3) return null;
         using var lease = await _models.AcquireSessionAsync(ModelCatalog.VocalId);
         var (vocal, mix) = await Task.Run(() => Separate(lease.Session, stereo, ct), ct);
-        return Detect(vocal, mix, offsetSeconds);
+        return Measure(vocal, mix, offsetSeconds);
     }
 
     private static (double[] vocal, double[] mix) Separate(InferenceSession session, float[] stereo, CancellationToken ct)
@@ -113,42 +111,22 @@ public sealed class MdxVocalAnalyzer : IVocalAnalyzer
         return (vocal, mix);
     }
 
-    private static List<(double start, double end)> Detect(double[] vocal, double[] mix, double offsetSeconds)
+    private static VocalActivity Measure(double[] vocal, double[] mix, double offsetSeconds)
     {
-        var frames = vocal.Length;
         var secondsPerFrame = Hop / (double)SampleRate;
         var radius = (int)Math.Round(0.2 / secondsPerFrame);
         var smoothVocal = Smooth(vocal, radius);
         var smoothMix = Smooth(mix, radius);
         var loudest = smoothMix.DefaultIfEmpty(0).Max();
-        var floor = loudest * Math.Pow(10, -40 / 10.0);
-        var regions = new List<(double start, double end)>();
-        var active = false;
-        var regionStart = 0;
-        for (var f = 0; f <= frames; f++)
+        var floor = loudest * Math.Pow(10, -20 / 10.0);
+        var values = new double[(int)(vocal.Length * secondsPerFrame * VocalActivity.Rate)];
+        for (var i = 0; i < values.Length; i++)
         {
-            var ratio = f < frames && smoothMix[f] > floor ? smoothVocal[f] / (smoothMix[f] + 1e-12) : 0;
-            if (!active && ratio >= EnterRatio)
-            {
-                active = true;
-                regionStart = f;
-            }
-            else if (active && ratio < ExitRatio)
-            {
-                active = false;
-                regions.Add((offsetSeconds + regionStart * secondsPerFrame, offsetSeconds + f * secondsPerFrame));
-            }
+            var frame = Math.Min(vocal.Length - 1, (int)(i / VocalActivity.Rate / secondsPerFrame));
+            var ratio = smoothMix[frame] > floor ? smoothVocal[frame] / (smoothMix[frame] + 1e-12) : 0;
+            values[i] = Math.Round(Math.Min(1, ratio), 3);
         }
-        var merged = new List<(double start, double end)>();
-        foreach (var region in regions)
-        {
-            if (merged.Count > 0 && region.start - merged[^1].end < 0.8)
-                merged[^1] = (merged[^1].start, region.end);
-            else
-                merged.Add(region);
-        }
-        merged.RemoveAll(r => r.end - r.start < 0.5);
-        return merged.Select(r => (Math.Round(r.start, 2), Math.Round(r.end, 2))).ToList();
+        return new VocalActivity(offsetSeconds, values);
     }
 
     private static double[] Smooth(double[] values, int radius)

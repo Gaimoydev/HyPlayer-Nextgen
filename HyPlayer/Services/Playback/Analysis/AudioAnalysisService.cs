@@ -42,12 +42,12 @@ public interface IVocalAnalyzer
 {
     string Id { get; }
     bool IsAvailable { get; }
-    Task<IReadOnlyList<(double start, double end)>?> AnalyzeAsync(float[] stereo, int sampleRate, double offsetSeconds, CancellationToken ct);
+    Task<VocalActivity?> AnalyzeAsync(float[] stereo, int sampleRate, double offsetSeconds, CancellationToken ct);
 }
 
 public interface IAudioAnalysisService
 {
-    Task<IReadOnlyList<(double start, double end)>?> AnalyzeVocalsAsync(HyPlayItem item, bool outro, CancellationToken ct);
+    Task<VocalActivity?> AnalyzeVocalsAsync(HyPlayItem item, bool outro, CancellationToken ct);
     string? CurrentVocalAnalyzerId { get; }
     TrackAnalysis? TryGetCached(HyPlayItem item);
     Task<TrackAnalysis?> AnalyzeAsync(HyPlayItem item, CancellationToken ct);
@@ -65,7 +65,7 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
     private readonly IEnumerable<IKeyAnalyzer> _keyAnalyzers;
     private readonly ModelManager _models;
     private readonly IEnumerable<IVocalAnalyzer> _vocalAnalyzers;
-    private readonly ConcurrentDictionary<string, Task<IReadOnlyList<(double start, double end)>?>> _vocalInflight = new();
+    private readonly ConcurrentDictionary<string, Task<VocalActivity?>> _vocalInflight = new();
     private const double VocalWindowSeconds = 32;
     private readonly ConcurrentDictionary<string, TrackAnalysis> _memory = new();
     private readonly ConcurrentDictionary<string, Task<TrackAnalysis?>> _inflight = new();
@@ -86,22 +86,23 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
 
     private IVocalAnalyzer? VocalAnalyzer() => _vocalAnalyzers.FirstOrDefault(a => a.IsAvailable);
 
-    public Task<IReadOnlyList<(double start, double end)>?> AnalyzeVocalsAsync(HyPlayItem item, bool outro, CancellationToken ct)
+    public Task<VocalActivity?> AnalyzeVocalsAsync(HyPlayItem item, bool outro, CancellationToken ct)
     {
         var analyzer = VocalAnalyzer();
-        if (analyzer is null) return Task.FromResult<IReadOnlyList<(double start, double end)>?>(null);
+        if (analyzer is null) return Task.FromResult<VocalActivity?>(null);
         var key = $"{KeyOf(item)}_{(outro ? "out" : "in")}";
         return _vocalInflight.GetOrAdd(key, _ => RunVocalsAsync(item, analyzer, outro, key, ct));
     }
 
-    private async Task<IReadOnlyList<(double start, double end)>?> RunVocalsAsync(HyPlayItem item, IVocalAnalyzer analyzer, bool outro, string inflightKey, CancellationToken ct)
+    private async Task<VocalActivity?> RunVocalsAsync(HyPlayItem item, IVocalAnalyzer analyzer, bool outro, string inflightKey, CancellationToken ct)
     {
         try
         {
             var analysis = await AnalyzeAsync(item, ct);
             if (analysis is null) return null;
-            var cached = analysis.VocalAnalyzer == analyzer.Id ? outro ? analysis.VocalOutro : analysis.VocalIntro : null;
-            if (cached is not null) return Unflatten(cached);
+            var cached = analysis.VocalAnalyzer == analyzer.Id ? outro ? analysis.VocalOutroCurve : analysis.VocalIntroCurve : null;
+            var cachedWindow = outro ? analysis.VocalOutroWindow : analysis.VocalIntroWindow;
+            if (cached is not null && cachedWindow is { Length: 2 }) return new VocalActivity(cachedWindow[0], cached);
 
             var from = outro ? Math.Max(0, analysis.SoundEnd - VocalWindowSeconds) : Math.Max(0, analysis.SoundStart);
             var length = Math.Min(VocalWindowSeconds, Math.Max(0, analysis.Duration - from));
@@ -112,27 +113,26 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
             try
             {
                 var pcm = await AudioDecoder.DecodeAsync(stream, 44100, 2, TimeSpan.FromSeconds(from), TimeSpan.FromSeconds(length), ct);
-                var regions = await analyzer.AnalyzeAsync(pcm.Samples, pcm.SampleRate, from, ct);
-                if (regions is null) return null;
+                var activity = await analyzer.AnalyzeAsync(pcm.Samples, pcm.SampleRate, from, ct);
+                if (activity is null) return null;
                 if (analysis.VocalAnalyzer != analyzer.Id)
                 {
                     analysis.VocalAnalyzer = analyzer.Id;
-                    analysis.VocalIntro = analysis.VocalOutro = null;
+                    analysis.VocalIntroCurve = analysis.VocalOutroCurve = null;
                     analysis.VocalIntroWindow = analysis.VocalOutroWindow = null;
                 }
-                var flat = regions.SelectMany(r => new[] { r.start, r.end }).ToArray();
                 if (outro)
                 {
-                    analysis.VocalOutro = flat;
-                    analysis.VocalOutroWindow = [from, from + length];
+                    analysis.VocalOutroCurve = activity.Values;
+                    analysis.VocalOutroWindow = [from, activity.End];
                 }
                 else
                 {
-                    analysis.VocalIntro = flat;
-                    analysis.VocalIntroWindow = [from, from + length];
+                    analysis.VocalIntroCurve = activity.Values;
+                    analysis.VocalIntroWindow = [from, activity.End];
                 }
                 await SaveAsync(KeyOf(item), analysis);
-                return regions;
+                return activity;
             }
             finally
             {
@@ -147,13 +147,6 @@ public sealed class AudioAnalysisService : IAudioAnalysisService
         {
             _vocalInflight.TryRemove(inflightKey, out _);
         }
-    }
-
-    private static IReadOnlyList<(double start, double end)> Unflatten(double[] flat)
-    {
-        var result = new List<(double start, double end)>(flat.Length / 2);
-        for (var i = 0; i + 1 < flat.Length; i += 2) result.Add((flat[i], flat[i + 1]));
-        return result;
     }
 
     private IBeatAnalyzer? BeatAnalyzer() => _beatAnalyzers.Where(a => a.IsAvailable).OrderByDescending(a => a.Priority).FirstOrDefault();

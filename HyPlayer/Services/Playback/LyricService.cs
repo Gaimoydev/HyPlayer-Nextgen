@@ -80,8 +80,13 @@ public sealed class LyricService : ILyricService
             lines = pure is KaraokLyricInfo ? Utils.ConvertKaraok(pure) : Utils.ConvertPureLyric(pure.PureLyrics);
         }
 
+        var first = 0;
+        var last = lines.Count - 1;
+        while (first <= last && IsCreditLine(lines[first].LyricLine?.CurrentLyric)) first++;
+        while (last >= first && IsCreditLine(lines[last].LyricLine?.CurrentLyric)) last--;
+
         var regions = new List<(double Start, double End)>();
-        for (var i = 0; i < lines.Count; i++)
+        for (var i = first; i <= last; i++)
         {
             var line = lines[i].LyricLine;
             if (line is null || string.IsNullOrWhiteSpace(line.CurrentLyric)) continue;
@@ -91,12 +96,43 @@ public sealed class LyricService : ILyricService
                 end = (words[^1].StartTime + words[^1].Duration).TotalSeconds;
             else
             {
-                var next = i + 1 < lines.Count ? lines[i + 1].LyricLine.StartTime.TotalSeconds : start + 8;
-                end = Math.Min(next, start + 8);
+                var length = i < last ? 8 : EstimateLineSeconds(line.CurrentLyric);
+                var next = i + 1 < lines.Count ? lines[i + 1].LyricLine.StartTime.TotalSeconds : start + length;
+                end = Math.Min(next, start + length);
             }
             if (end > start) regions.Add((start, end));
         }
+        if (regions.Count < 3) regions.Clear();
         return regions;
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex CreditLine = new(@"^\s*[^:：]{1,24}\s*[:：]\s*\S");
+
+    private static bool IsCreditLine(string? text) =>
+        string.IsNullOrWhiteSpace(text) || CreditLine.IsMatch(text) || text.Contains("纯音乐");
+
+    private static double EstimateLineSeconds(string text)
+    {
+        var units = 0;
+        var inWord = false;
+        foreach (var c in text)
+        {
+            if (c >= 0x2E80)
+            {
+                units++;
+                inWord = false;
+            }
+            else if (char.IsLetterOrDigit(c))
+            {
+                if (!inWord) units++;
+                inWord = true;
+            }
+            else
+            {
+                inWord = false;
+            }
+        }
+        return Math.Clamp(1.5 + 0.4 * units, 3, 8);
     }
 
     /// <inheritdoc />

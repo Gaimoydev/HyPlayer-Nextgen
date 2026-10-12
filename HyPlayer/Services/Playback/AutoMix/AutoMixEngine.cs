@@ -64,7 +64,7 @@ public sealed class AutoMixEngine : IMixRenderSource, IDisposable
     private double _nodeSpeedB = 1;
     private double _predictedNodeIndexB = double.NaN;
     private int _alignStableQuanta;
-    private bool _echoConfigured;
+    private long _startRenderedB = -1;
     private double _limiterGain = 1;
     private volatile bool _forceHandBack;
     private double _forcedFadeSeconds;
@@ -102,6 +102,7 @@ public sealed class AutoMixEngine : IMixRenderSource, IDisposable
     public volatile bool NeedsMapB;
     public volatile bool NeedsForcedHandBack;
     public double BContentSeconds => _voiceB?.ContentSeconds ?? double.NaN;
+    public double SecondsSinceBStarted => _startRenderedB < 0 ? 0 : (_rendered - _startRenderedB) / (double)_sampleRate;
     public double VolumeB => _volumeB;
     public double Progress { get; private set; }
     public long HandoverIndexA => _handoverIndexA;
@@ -352,7 +353,8 @@ public sealed class AutoMixEngine : IMixRenderSource, IDisposable
         _voiceB = new MixVoice(_regionB, _plan.BEntry, stretch);
         _voiceB.Rate = _plan.Rate;
         _voiceB.SetGainImmediate(0);
-        if (_plan.Technique == MixTechnique.BeatMix && _plan.BassSwapAt >= 0) _voiceB.LowShelfDb = -24;
+        if (_plan.Technique == MixTechnique.BeatMix) _voiceB.LowShelfDb = -24;
+        _startRenderedB = _rendered;
         BStarted = true;
         Stage = AutoMixStage.Overlap;
         try
@@ -376,12 +378,14 @@ public sealed class AutoMixEngine : IMixRenderSource, IDisposable
         Progress = x;
         if (x >= 0.5) MidpointReached = true;
         var gainB = _volumeB * _plan.GainB;
+        var handoff = Math.Clamp(_plan.Handoff, 0, 0.95);
+        var release = x < handoff ? 0 : (x - handoff) / (1 - handoff);
         switch (_plan.Technique)
         {
             case MixTechnique.BeatMix:
-                _voiceA.TargetGain = _volumeA * (x < 0.5 ? 1 : Math.Cos((x - 0.5) * Math.PI));
-                if (_voiceB is not null) _voiceB.TargetGain = gainB * (x < 0.5 ? Math.Sin(x * Math.PI) : 1);
-                if (_plan.BassSwapAt >= 0 && x >= _plan.BassSwapAt)
+                _voiceA.TargetGain = _volumeA * Math.Cos(release * Math.PI / 2);
+                if (_voiceB is not null) _voiceB.TargetGain = gainB * (x < handoff ? Math.Sin(x / handoff * Math.PI / 2) : 1);
+                if (x >= handoff)
                 {
                     _voiceA.LowShelfDb = -24;
                     if (_voiceB is not null) _voiceB.LowShelfDb = 0;
@@ -392,20 +396,18 @@ public sealed class AutoMixEngine : IMixRenderSource, IDisposable
                 _voiceA.TargetGain = _volumeA * (x < 0.7 ? 1 : Math.Cos((x - 0.7) / 0.3 * Math.PI / 2));
                 if (_voiceB is not null) _voiceB.TargetGain = gainB * (x < 0.5 ? 0 : Math.Sin((x - 0.5) / 0.5 * Math.PI / 2));
                 break;
-            case MixTechnique.EchoOut:
-                if (!_echoConfigured && _plan.BeatSeconds > 0)
-                {
-                    _voiceA.ConfigureEcho(_plan.BeatSeconds);
-                    _echoConfigured = true;
-                }
-                _voiceA.EchoMix = x < 0.25 ? 1 : 0;
-                _voiceA.DryGain = Math.Max(0, 1 - x * 4);
-                _voiceA.TargetGain = _volumeA * (x < 0.9 ? 1 : (1 - x) * 10);
-                if (_voiceB is not null) _voiceB.TargetGain = gainB * Math.Sin(Math.Min(1, x * 2) * Math.PI / 2);
-                break;
             default:
-                _voiceA.TargetGain = _volumeA * Math.Cos(x * Math.PI / 2);
-                if (_voiceB is not null) _voiceB.TargetGain = gainB * Math.Sin(x * Math.PI / 2);
+                if (handoff < 0.1)
+                {
+                    _voiceA.TargetGain = _volumeA * Math.Cos(x * Math.PI / 2);
+                    if (_voiceB is not null) _voiceB.TargetGain = gainB * Math.Sin(x * Math.PI / 2);
+                    break;
+                }
+                _voiceA.TargetGain = _volumeA * Math.Cos(release * Math.PI / 2);
+                if (_voiceB is not null)
+                    _voiceB.TargetGain = gainB * (x < handoff
+                        ? 0.6 * Math.Sin(x / handoff * Math.PI / 2)
+                        : 0.6 + 0.4 * Math.Sin(release * Math.PI / 2));
                 break;
         }
         if (x >= 1) _voiceA.TargetGain = 0;

@@ -25,9 +25,6 @@ public sealed class MixVoice : IDisposable
     private float[] _raw = new float[8192];
     private readonly StereoBiquad _highPass = new();
     private readonly StereoBiquad _lowShelf = new();
-    private float[] _echo = Array.Empty<float>();
-    private int _echoWrite;
-    private int _echoLength;
     private double _gain;
     private int _rawBlendFrames;
     private int _rawBlendDone = -1;
@@ -55,8 +52,6 @@ public sealed class MixVoice : IDisposable
     public double TargetGain { get; set; }
     public double HighPassHz { get; set; }
     public double LowShelfDb { get; set; }
-    public double EchoMix { get; set; }
-    public double DryGain { get; set; } = 1;
     public bool Finished => ContentIndex >= _region.Frames - 1;
 
     public void SetGainImmediate(double gain)
@@ -71,13 +66,6 @@ public sealed class MixVoice : IDisposable
         _rawBlendFrames = Math.Max(1, (int)(seconds * _sampleRate));
         _rawBlendDone = 0;
         Rate = 1;
-    }
-
-    public void ConfigureEcho(double delaySeconds)
-    {
-        _echoLength = Math.Max(1, (int)(delaySeconds * _sampleRate));
-        _echo = new float[_echoLength * 2];
-        _echoWrite = 0;
     }
 
     public void Render(Span<float> mix, int frames, int rampFrames)
@@ -141,21 +129,8 @@ public sealed class MixVoice : IDisposable
             var t = rampFrames > 0 && i < rampFrames ? (i + 1) / (double)rampFrames : 1;
             var g = startGain + (endGain - startGain) * Math.Min(1, (i + 1) / (double)frames);
             if (rampFrames > 0) g *= t;
-            var l = dry[i * 2] * g;
-            var r = dry[i * 2 + 1] * g;
-            if (_echoLength > 0)
-            {
-                var slot = _echoWrite * 2;
-                var el = _echo[slot];
-                var er = _echo[slot + 1];
-                _echo[slot] = (float)(el * 0.55 + l * EchoMix);
-                _echo[slot + 1] = (float)(er * 0.55 + r * EchoMix);
-                _echoWrite = (_echoWrite + 1) % _echoLength;
-                l = l * DryGain + el;
-                r = r * DryGain + er;
-            }
-            mix[i * 2] += (float)l;
-            mix[i * 2 + 1] += (float)r;
+            mix[i * 2] += (float)(dry[i * 2] * g);
+            mix[i * 2 + 1] += (float)(dry[i * 2 + 1] * g);
         }
         _gain = endGain;
     }
